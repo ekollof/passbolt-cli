@@ -1,0 +1,12 @@
+I need a cli for passbolt that works similar to the password-store cli. It
+should allow me to retrieve and search passwords stored in passbolt from the
+command line. The cli should support the following commands:
+
+- copy <password-name>: Copies the password to the clipboard.
+- search <query>: Searches for passwords matching the query.
+- export <password-name> <pass name/path>: export password into the password-store database.
+
+The tool should fetch an authentication token from the API with a private key
+(same which is used for recovery when accessing from a new browser).
+
+Config should be in .ini format.

@@ -1,0 +1,27 @@
+[passbolt]
+# The URL of your Passbolt server
+server_url = https://passbolt.example.com
+
+# Your Passbolt username (email address)
+username = user@example.com
+
+# Path to your GPG private key file
+# This is the same key used for account recovery in the browser
+private_key_path = ~/.passbolt/private_key.asc
+
+# Your GPG key fingerprint (optional)
+# user_fingerprint = ABCDEF1234567890
+
+# Passphrase for your GPG private key (optional, will prompt if not provided)
+# Leave empty or comment out for better security
+# passphrase = your_gpg_passphrase
+
+# You can also execute a command to retrieve the passphrase securely:
+# passphrase = exec:pass show passbolt/gpg-passphrase
+# passphrase = exec:secret-tool lookup passbolt passphrase
+# passphrase = exec:gpg --decrypt ~/.passbolt/passphrase.gpg
+
+# Clipboard timeout in seconds (default: 45)
+# The password will be automatically cleared from the clipboard after this time
+# Set to 0 to disable automatic clearing
+# clipboard_timeout = 45
