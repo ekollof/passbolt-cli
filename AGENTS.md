@@ -14,6 +14,7 @@ passbolt/
 ├── commands.py       # CLI command implementations (copy, search, show, export)
 ├── config.py         # INI configuration parsing and validation
 ├── cli.py            # Argument parsing and main entry point
+├── theme.py          # Wallust/pywal theme loader for TUI
 └── tui.py            # Textual-based TUI application (interactive mode)
 ```
 
@@ -36,6 +37,7 @@ passbolt/
 - Clipboard operations run in background via `@work(thread=True)` to keep UI responsive
 - Notifications use Textual's `notify()` plus `notify-send` for desktop notifications
 - Search box filters in real-time; `Escape`/`Enter` defocus without clearing results
+- Theming: Supports wallust/pywal dynamic theming via `~/.cache/wal/colors.json`
 
 ## Development
 

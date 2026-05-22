@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from textual import on, work
@@ -25,6 +26,7 @@ from textual.widgets import (
 
 from passbolt.client import PassboltClient
 from passbolt.config import PassboltConfig
+from passbolt.theme import load_wallust_theme
 
 
 class ResourceDetail(Static):
@@ -179,6 +181,8 @@ class PassboltTUI(App[None]):
         self.client = client
         self.config = config
         self._secret_cache: dict[str, str] = {}
+        self._wal_path = Path.home() / ".cache" / "wal" / "colors.json"
+        self._wal_mtime: float = 0.0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -210,7 +214,18 @@ class PassboltTUI(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Load resources when app mounts"""
+        """Load resources and theme when app mounts"""
+        # Register and activate wallust theme if available
+        wallust_theme = load_wallust_theme()
+        if wallust_theme:
+            self.register_theme(wallust_theme)
+            self.theme = "wallust"
+            try:
+                self._wal_mtime = self._wal_path.stat().st_mtime
+            except OSError:
+                self._wal_mtime = 0.0
+            self.set_interval(2, self._check_wallust_theme)
+
         self.query_one("#loading-label", Label).styles.display = "block"
         self.query_one("#detail", ResourceDetail).styles.display = "none"
         self.load_resources()
@@ -579,6 +594,21 @@ class PassboltTUI(App[None]):
                 )
 
         self.push_screen(SecretScreen(password, resource))
+
+    def _check_wallust_theme(self) -> None:
+        """Poll wallust colors.json and refresh theme if it changed."""
+        try:
+            mtime = self._wal_path.stat().st_mtime
+        except OSError:
+            return
+        if mtime == self._wal_mtime:
+            return
+        self._wal_mtime = mtime
+        new_theme = load_wallust_theme()
+        if new_theme:
+            self.register_theme(new_theme)
+            if self.theme == "wallust":
+                self.refresh_css(animate=False)
 
 
 def run_tui(client: PassboltClient, config: PassboltConfig) -> None:

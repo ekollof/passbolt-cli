@@ -200,6 +200,8 @@ Keyboard shortcuts:
 
 Search works in real time. Delete the search text to restore all results.
 
+**Theming:** The TUI supports dynamic theming via [wallust](https://codeberg.org/explosion-mental/wallust) / [pywal](https://github.com/dylanaraps/pywal). If `~/.cache/wal/colors.json` exists, the TUI will automatically pick up your color scheme and refresh when it changes.
+
 ### Export to password-store
 
 ```bash
