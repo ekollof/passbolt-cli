@@ -6,19 +6,19 @@ from urllib.parse import urljoin
 from passbolt.config import load_config
 from pathlib import Path
 
-config_path = Path('~/.config/passbolt/config.ini').expanduser()
+config_path = Path("~/.config/passbolt/config.ini").expanduser()
 config = load_config(config_path)
 
 print(f"Checking Passbolt server for user: {config.username}\n")
 
 # Try to get the server's public key
-pubkey_url = urljoin(config.server_url, '/auth/verify.json')
+pubkey_url = urljoin(config.server_url, "/auth/verify.json")
 try:
     resp = requests.get(pubkey_url)
     print(f"Server GPG key endpoint: {resp.status_code}")
     if resp.status_code == 200:
         data = resp.json()
-        if 'body' in data and 'fingerprint' in data['body']:
+        if "body" in data and "fingerprint" in data["body"]:
             print(f"  Server fingerprint: {data['body']['fingerprint']}")
 except Exception as e:
     print(f"  Error: {e}")
@@ -27,9 +27,9 @@ print()
 
 # Try to get user's public key from server
 # Passbolt might have an endpoint like /users/<email>/gpgkey or similar
-user_key_urls = [    
-    f'/users.json?filter[search]={config.username}',
-    f'/gpgkeys.json',
+user_key_urls = [
+    f"/users.json?filter[search]={config.username}",
+    "/gpgkeys.json",
 ]
 
 for url_path in user_key_urls:
@@ -48,9 +48,9 @@ for url_path in user_key_urls:
         print(f"  Error: {e}")
     print()
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("IMPORTANT: Check in Passbolt web interface:")
-print("="*60)
+print("=" * 60)
 print("1. Go to Profile → Keys")
 print("2. Is the private key SAVED (not just displayed)?")
 print("3. Try removing and re-adding the GPG key")

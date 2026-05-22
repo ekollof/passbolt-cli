@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Textual TUI for Passbolt password lookup"""
+
+from __future__ import annotations
 
 import json
 import shutil
@@ -35,27 +35,25 @@ class ResourceDetail(Static):
     def watch_resource(self, resource: dict[str, Any] | None) -> None:
         """Update display when resource changes"""
         if resource is None:
-            self.update(
-                "[#888888 italic]Select a password entry to view details[/]"
-            )
+            self.update("[#888888 italic]Select a password entry to view details[/]")
             return
 
         lines: list[str] = []
         lines.append(f"[b]{self._escape(resource.get('name', 'Unknown'))}[/b]\n")
 
-        username = resource.get('username')
+        username = resource.get("username")
         if username:
             lines.append(f"[dim]Username:[/dim]    {self._escape(username)}")
 
-        uri = resource.get('uri')
+        uri = resource.get("uri")
         if uri:
             lines.append(f"[dim]URI:[/dim]        {self._escape(uri)}")
 
-        description = resource.get('description')
+        description = resource.get("description")
         if description:
             lines.append(f"[dim]Description:[/dim] {self._escape(description)}")
 
-        resource_id = resource.get('id')
+        resource_id = resource.get("id")
         if resource_id:
             lines.append(f"[dim]ID:[/dim]          {self._escape(resource_id)}")
 
@@ -87,7 +85,9 @@ class SecretDialog(Static):
             lines.append(f"[dim]URI:[/dim]      {self.uri}")
 
         yield Label("\n".join(lines))
-        yield Label("[dim]Press [b]Esc[/b] or [b]q[/b] to close[/dim]", classes="center")
+        yield Label(
+            "[dim]Press [b]Esc[/b] or [b]q[/b] to close[/dim]", classes="center"
+        )
 
 
 class PassboltTUI(App[None]):
@@ -202,7 +202,9 @@ class PassboltTUI(App[None]):
                     yield table
 
                 with Vertical(classes="detail-panel"):
-                    yield Label("Loading resources...", classes="loading", id="loading-label")
+                    yield Label(
+                        "Loading resources...", classes="loading", id="loading-label"
+                    )
                     yield ResourceDetail(id="detail")
 
         yield Footer()
@@ -257,7 +259,9 @@ class PassboltTUI(App[None]):
 
     @on(DataTable.RowSelected)
     @on(DataTable.RowHighlighted)
-    def on_row_selected(self, event: DataTable.RowSelected | DataTable.RowHighlighted) -> None:
+    def on_row_selected(
+        self, event: DataTable.RowSelected | DataTable.RowHighlighted
+    ) -> None:
         """Handle row selection/highlight"""
         row_key = event.row_key.value
         resource = next((r for r in self.resources if r.get("id") == row_key), None)
@@ -388,7 +392,10 @@ class PassboltTUI(App[None]):
             clipboard_cmd = ["pbcopy"]
 
         if not clipboard_cmd:
-            return False, "No clipboard tool found (install xclip, xsel, wl-clipboard, or pbcopy)"
+            return (
+                False,
+                "No clipboard tool found (install xclip, xsel, wl-clipboard, or pbcopy)",
+            )
 
         try:
             # Use Popen for all clipboard tools. Some (wl-copy, xclip, xsel)
@@ -525,9 +532,7 @@ class PassboltTUI(App[None]):
         """Fetch and show secret in background thread"""
         try:
             password = self._get_password(resource_id)
-            self.call_from_thread(
-                self._push_secret_screen, password, resource
-            )
+            self.call_from_thread(self._push_secret_screen, password, resource)
         except Exception as e:
             self.call_from_thread(
                 self.notify, f"Failed to retrieve password: {e}", severity="error"

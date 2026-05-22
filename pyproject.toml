@@ -43,3 +43,9 @@ packages = ["passbolt"]
 
 [tool.setuptools.package-data]
 passbolt = ["py.typed"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+include = ["passbolt", "passbolt-cli.py"]
+exclude = [".venv", "venv", "__pycache__"]
+reportMissingImports = false
