@@ -1,19 +1,21 @@
+from __future__ import annotations
+
 """Configuration handling for Passbolt CLI"""
 
 import configparser
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 
 
 class PassboltConfig:
     """Passbolt configuration wrapper"""
     
-    def __init__(self, config_dict: Dict[str, Any]) -> None:
-        self.server_url: Optional[str] = config_dict.get('server_url')
-        self.username: Optional[str] = config_dict.get('username')
-        private_key_path_str: Optional[str] = config_dict.get('private_key_path')
-        self.user_fingerprint: Optional[str] = config_dict.get('user_fingerprint')
+    def __init__(self, config_dict: dict[str, Any]) -> None:
+        self.server_url: str | None = config_dict.get('server_url')
+        self.username: str | None = config_dict.get('username')
+        private_key_path_str: str | None = config_dict.get('private_key_path')
+        self.user_fingerprint: str | None = config_dict.get('user_fingerprint')
         self._passphrase_config: str = config_dict.get('passphrase', '')
         self.clipboard_timeout: int = int(config_dict.get('clipboard_timeout', '45'))
         

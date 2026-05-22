@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 Passbolt CLI - A command-line interface for Passbolt password manager
 """
@@ -10,6 +12,7 @@ from pathlib import Path
 from passbolt.client import PassboltClient
 from passbolt.config import load_config, PassboltConfig
 from passbolt.commands import copy_password, search_passwords, export_password, show_password
+from passbolt.tui import run_tui
 
 
 def main() -> None:
@@ -29,7 +32,7 @@ def main() -> None:
     
     # Copy command
     copy_parser = subparsers.add_parser('copy', help='Copy password to clipboard')
-    copy_parser.add_argument('password_name', help='Name of the password to copy')
+    copy_parser.add_argument('password_name', help='Name or UUID of the password to copy')
     
     # Search command
     search_parser = subparsers.add_parser('search', help='Search for passwords')
@@ -41,8 +44,11 @@ def main() -> None:
     
     # Export command
     export_parser = subparsers.add_parser('export', help='Export password to pass (password-store)')
-    export_parser.add_argument('password_name', help='Name of the password in Passbolt')
+    export_parser.add_argument('password_name', help='Name or UUID of the password in Passbolt')
     export_parser.add_argument('pass_path', help='Path in password-store')
+    
+    # TUI command
+    tui_parser = subparsers.add_parser('tui', help='Launch interactive terminal UI')
     
     args = parser.parse_args()
     
@@ -80,6 +86,8 @@ def main() -> None:
                 show_password(client, args.password_name)
             case 'export':
                 export_password(client, args.password_name, args.pass_path)
+            case 'tui':
+                run_tui(client, config)
     except KeyboardInterrupt:
         print("\nOperation cancelled", file=sys.stderr)
         sys.exit(130)

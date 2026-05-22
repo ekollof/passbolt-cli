@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 Passbolt CLI - A command-line interface for Passbolt password manager
 """

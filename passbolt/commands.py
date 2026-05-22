@@ -1,20 +1,21 @@
+from __future__ import annotations
+
 """Command implementations for Passbolt CLI"""
 
 import sys
 import os
 import subprocess
 import shutil
-import shlex
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 from passbolt.client import PassboltClient
 from passbolt.config import PassboltConfig
 
 
-def copy_password(client: PassboltClient, password_name: str, config: Optional[PassboltConfig] = None) -> None:
+def copy_password(client: PassboltClient, password_name: str, config: PassboltConfig | None = None) -> None:
     """Copy a password to the clipboard"""
     # Find the resource (by UUID or name)
-    resource: Optional[Dict[str, Any]] = client.find_resource_by_name_or_id(password_name)
+    resource: dict[str, Any] | None = client.find_resource_by_name_or_id(password_name)
     
     if not resource:
         print(f"Error: Password '{password_name}' not found", file=sys.stderr)
@@ -32,12 +33,12 @@ def copy_password(client: PassboltClient, password_name: str, config: Optional[P
                 password: str = secret_data['password']
             else:
                 password = secret
-        except:
+        except Exception:
             password = secret
         
         # Copy to clipboard using system clipboard tools
         # Try different clipboard mechanisms in order of preference
-        clipboard_cmd: Optional[List[str]] = None
+        clipboard_cmd: list[str] | None = None
         
         # Check for Wayland (wl-copy) - only if actually in Wayland session
         if os.environ.get('WAYLAND_DISPLAY') and shutil.which('wl-copy'):
@@ -109,7 +110,7 @@ subprocess.run({repr(clipboard_cmd)}, input='', text=True, stdout=subprocess.dev
 def search_passwords(client: PassboltClient, query: str) -> None:
     """Search for passwords matching the query"""
     try:
-        results: List[Dict[str, Any]] = client.search_resources(query)
+        results: list[dict[str, Any]] = client.search_resources(query)
         
         if not results:
             print(f"No passwords found matching '{query}'")
@@ -142,7 +143,7 @@ def search_passwords(client: PassboltClient, query: str) -> None:
 def export_password(client: PassboltClient, password_name: str, pass_path: str) -> None:
     """Export a password to password-store (pass)"""
     # Find the resource (by UUID or name)
-    resource: Optional[Dict[str, Any]] = client.find_resource_by_name_or_id(password_name)
+    resource: dict[str, Any] | None = client.find_resource_by_name_or_id(password_name)
     
     if not resource:
         print(f"Error: Password '{password_name}' not found", file=sys.stderr)
@@ -171,7 +172,7 @@ def export_password(client: PassboltClient, password_name: str, pass_path: str) 
                     pass_content += f'url: {uri}\n'
             else:
                 pass_content = secret
-        except:
+        except Exception:
             pass_content = secret
         
         # Insert into pass
@@ -199,7 +200,7 @@ def export_password(client: PassboltClient, password_name: str, pass_path: str) 
 def show_password(client: PassboltClient, password_name: str) -> None:
     """Display password on stdout"""
     # Find the resource (by UUID or name)
-    resource: Optional[Dict[str, Any]] = client.find_resource_by_name_or_id(password_name)
+    resource: dict[str, Any] | None = client.find_resource_by_name_or_id(password_name)
     
     if not resource:
         print(f"Error: Password '{password_name}' not found", file=sys.stderr)
@@ -229,7 +230,7 @@ def show_password(client: PassboltClient, password_name: str) -> None:
                 print(output, end='')
             else:
                 print(secret)
-        except:
+        except Exception:
             print(secret)
             
     except Exception as e:

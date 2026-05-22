@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 """Textual TUI for Passbolt password lookup"""
 
 import json
 import shutil
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -28,9 +30,9 @@ from passbolt.config import PassboltConfig
 class ResourceDetail(Static):
     """Widget to display resource details"""
 
-    resource: reactive[Optional[Dict[str, Any]]] = reactive(None)
+    resource: reactive[dict[str, Any] | None] = reactive(None)
 
-    def watch_resource(self, resource: Optional[Dict[str, Any]]) -> None:
+    def watch_resource(self, resource: dict[str, Any] | None) -> None:
         """Update display when resource changes"""
         if resource is None:
             self.update(
@@ -38,7 +40,7 @@ class ResourceDetail(Static):
             )
             return
 
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append(f"[b]{self._escape(resource.get('name', 'Unknown'))}[/b]\n")
 
         username = resource.get('username')
@@ -75,7 +77,7 @@ class SecretDialog(Static):
         self.uri = uri
 
     def compose(self) -> ComposeResult:
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append("[b]Password[/b]")
         lines.append(f"[reverse]{self.password}[/reverse]\n")
 
@@ -169,14 +171,14 @@ class PassboltTUI(App[None]):
     }
     """
 
-    resources: reactive[List[Dict[str, Any]]] = reactive([])
-    selected_resource: reactive[Optional[Dict[str, Any]]] = reactive(None)
+    resources: reactive[list[dict[str, Any]]] = reactive([])
+    selected_resource: reactive[dict[str, Any] | None] = reactive(None)
 
     def __init__(self, client: PassboltClient, config: PassboltConfig) -> None:
         super().__init__()
         self.client = client
         self.config = config
-        self._secret_cache: Dict[str, str] = {}
+        self._secret_cache: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -220,7 +222,7 @@ class PassboltTUI(App[None]):
         except Exception as e:
             self.call_from_thread(self.show_error, f"Error loading resources: {e}")
 
-    def set_resources(self, results: List[Dict[str, Any]]) -> None:
+    def set_resources(self, results: list[dict[str, Any]]) -> None:
         """Set resources and update table"""
         self.resources = results
         table = self.query_one("#resource-table", DataTable)
@@ -261,7 +263,7 @@ class PassboltTUI(App[None]):
         resource = next((r for r in self.resources if r.get("id") == row_key), None)
         self.selected_resource = resource
 
-    def watch_selected_resource(self, resource: Optional[Dict[str, Any]]) -> None:
+    def watch_selected_resource(self, resource: dict[str, Any] | None) -> None:
         """Update detail panel when selection changes"""
         detail = self.query_one("#detail", ResourceDetail)
         detail.resource = resource
@@ -370,11 +372,11 @@ class PassboltTUI(App[None]):
         return secret
 
     @staticmethod
-    def _do_clipboard_copy(text: str) -> tuple[bool, str | List[str]]:
+    def _do_clipboard_copy(text: str) -> tuple[bool, str | list[str]]:
         """Copy text to clipboard. Returns (success, clipboard_cmd)."""
         import os
 
-        clipboard_cmd: Optional[List[str]] = None
+        clipboard_cmd: list[str] | None = None
         if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-copy"):
             clipboard_cmd = ["wl-copy"]
         elif os.environ.get("DISPLAY"):
@@ -417,7 +419,7 @@ class PassboltTUI(App[None]):
 
     def _on_clipboard_copy_success(
         self,
-        clipboard_cmd: List[str],
+        clipboard_cmd: list[str],
         textual_message: str,
         desktop_message: str,
     ) -> None:
@@ -432,7 +434,7 @@ class PassboltTUI(App[None]):
             )
 
     @work(thread=True)
-    def _clear_clipboard(self, clipboard_cmd: List[str], description: str) -> None:
+    def _clear_clipboard(self, clipboard_cmd: list[str], description: str) -> None:
         """Clear clipboard in background thread"""
         try:
             # Use Popen for all clipboard tools so we don't block on
@@ -519,7 +521,7 @@ class PassboltTUI(App[None]):
         self._show_secret_dialog(resource_id, resource)
 
     @work(thread=True)
-    def _show_secret_dialog(self, resource_id: str, resource: Dict[str, Any]) -> None:
+    def _show_secret_dialog(self, resource_id: str, resource: dict[str, Any]) -> None:
         """Fetch and show secret in background thread"""
         try:
             password = self._get_password(resource_id)
@@ -531,7 +533,7 @@ class PassboltTUI(App[None]):
                 self.notify, f"Failed to retrieve password: {e}", severity="error"
             )
 
-    def _push_secret_screen(self, password: str, resource: Dict[str, Any]) -> None:
+    def _push_secret_screen(self, password: str, resource: dict[str, Any]) -> None:
         """Push a screen showing the secret"""
 
         class SecretScreen(Screen[None]):
@@ -542,13 +544,13 @@ class PassboltTUI(App[None]):
                 Binding("escape", "app.pop_screen", "Close"),
             ]
 
-            def __init__(self, password: str, resource: Dict[str, Any]) -> None:
+            def __init__(self, password: str, resource: dict[str, Any]) -> None:
                 super().__init__()
                 self.password = password
                 self.resource = resource
 
             def compose(self) -> ComposeResult:
-                lines: List[str] = []
+                lines: list[str] = []
                 lines.append(f"[b]{resource.get('name', 'Unknown')}[/b]\n")
                 lines.append("[b]Password[/b]")
                 lines.append(f"[reverse]{password}[/reverse]\n")

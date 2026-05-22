@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 """Passbolt API client"""
 
 import json
 import requests
-from typing import List, Dict, Optional, Any
+from typing import Any
 from urllib.parse import urljoin
 
 from passbolt.config import PassboltConfig
@@ -38,16 +40,17 @@ class PassboltClient:
         response = self.session.request(method, url, **kwargs)
         
         # Handle session expiration
-        if response.status_code == 401 or response.status_code == 403:
-            # Re-authenticate
-            self._authenticate()
-            # Retry request
-            response = self.session.request(method, url, **kwargs)
+        match response.status_code:
+            case 401 | 403:
+                # Re-authenticate
+                self._authenticate()
+                # Retry request
+                response = self.session.request(method, url, **kwargs)
         
         response.raise_for_status()
         return response
     
-    def get_resources(self, filter_query: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_resources(self, filter_query: str | None = None) -> list[dict[str, Any]]:
         """Get list of password resources"""
         endpoint = '/resources.json'
         
@@ -63,7 +66,7 @@ class PassboltClient:
             return data['body']
         return data if isinstance(data, list) else []
     
-    def get_resource_by_id(self, resource_id: str) -> Dict[str, Any]:
+    def get_resource_by_id(self, resource_id: str) -> dict[str, Any]:
         """Get a specific resource by ID"""
         endpoint = f'/resources/{resource_id}.json'
         response = self._make_request('GET', endpoint)
@@ -91,7 +94,7 @@ class PassboltClient:
         decrypted = self.auth.decrypt_secret(encrypted_data)
         return decrypted
     
-    def search_resources(self, query: str) -> List[Dict[str, Any]]:
+    def search_resources(self, query: str) -> list[dict[str, Any]]:
         """Search for resources matching query"""
         # Try server-side filtering first
         resources = self.get_resources(filter_query=query)
@@ -118,7 +121,7 @@ class PassboltClient:
         
         return resources
     
-    def find_resource_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+    def find_resource_by_name(self, name: str) -> dict[str, Any] | None:
         """Find a resource by exact or partial name match"""
         resources = self.get_resources()
         
@@ -130,23 +133,24 @@ class PassboltClient:
         # Try partial match
         matches = [r for r in resources if name.lower() in r.get('name', '').lower()]
         
-        if len(matches) == 1:
-            return matches[0]
-        elif len(matches) > 1:
-            # Multiple matches, raise error with suggestions
-            names = [r['name'] for r in matches[:5]]
-            raise ValueError(f"Multiple resources match '{name}': {', '.join(names)}")
+        match len(matches):
+            case 1:
+                return matches[0]
+            case n if n > 1:
+                # Multiple matches, raise error with suggestions
+                names = [r['name'] for r in matches[:5]]
+                raise ValueError(f"Multiple resources match '{name}': {', '.join(names)}")
         
         return None
     
-    def find_resource_by_name_or_id(self, identifier: str) -> Optional[Dict[str, Any]]:
+    def find_resource_by_name_or_id(self, identifier: str) -> dict[str, Any] | None:
         """Find a resource by UUID or name"""
         # Check if it looks like a UUID (contains hyphens and is 36 chars)
         if len(identifier) == 36 and identifier.count('-') == 4:
             # Try to fetch by ID directly
             try:
                 return self.get_resource_by_id(identifier)
-            except:
+            except Exception:
                 pass
         
         # Fall back to name search

@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Authentication handling for Passbolt API"""
 
 import gnupg
 import json
 import requests
-from typing import Optional
 from pathlib import Path
 from urllib.parse import urljoin, unquote_plus
 
@@ -99,7 +100,7 @@ class PassboltAuth:
                 try:
                     body = response.json()
                     body_msg = json.dumps(body, indent=2)
-                except:
+                except Exception:
                     body_msg = response.text[:500] if response.text else 'empty'
                 
                 raise ValueError(
@@ -159,7 +160,7 @@ class PassboltAuth:
                 try:
                     body = final_response.json()
                     body_msg = json.dumps(body, indent=2)
-                except:
+                except Exception:
                     body_msg = final_response.text[:500] if final_response.text else 'empty'
                 
                 raise ValueError(

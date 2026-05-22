@@ -44,6 +44,13 @@ passbolt/
 - `python-gnupg>=0.5.0` — GPG integration
 - `textual>=0.50.0` — TUI framework
 
+### Python Version
+Requires Python **3.10+**. Uses 3.10+ features:
+- `from __future__ import annotations` in all modules
+- Union types with `|` syntax (`str | None` instead of `Optional[str]`)
+- `match/case` instead of long if/elif/else chains
+- Built-in generic types (`list[str]`, `dict[str, Any]` instead of `List[str]`, `Dict[str, Any]`)
+
 ### Running Locally
 ```bash
 pip install -e .
