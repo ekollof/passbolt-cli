@@ -14,7 +14,7 @@ passbolt/
 ├── commands.py       # CLI command implementations (copy, search, show, export)
 ├── config.py         # INI configuration parsing and validation
 ├── cli.py            # Argument parsing and main entry point
-├── secret.py         # Shared secret parsing (json.loads, not eval)
+├── secret.py         # Shared secret parsing and TOTP generation
 ├── theme.py          # Wallust/pywal theme loader for TUI
 └── tui.py            # Textual-based TUI application (interactive mode)
 ```
@@ -25,6 +25,13 @@ passbolt/
 - This tool only reads passwords from Passbolt
 - No create, modify, or delete operations are implemented
 - This is intentional for security and scope
+
+### TOTP Support
+- TOTP is a Passbolt Pro feature; CE resources won't have TOTP data
+- Resource types are identified by `resource_type_id` UUID
+- TOTP codes are generated using standard library (`hmac`, `hashlib`, `base64`) — no external deps
+- TOTP resources are marked with `[TOTP]` in search results
+- TOTP secret structure: `{"totp": {"secret_key": "...", "algorithm": "SHA1", "digits": 6, "period": 30}}`
 
 ### Clipboard Handling
 - Uses daemon-style clipboard tools: `wl-copy` (Wayland), `xclip`/`xsel` (X11), `pbcopy` (macOS)

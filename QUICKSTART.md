@@ -45,6 +45,14 @@ passbolt search aws
 passbolt search database
 ```
 
+### Generate a TOTP code
+```bash
+passbolt totp <name>
+
+# Examples:
+passbolt totp github
+```
+
 ### Interactive TUI
 ```bash
 passbolt tui
@@ -55,6 +63,7 @@ Keyboard shortcuts:
 - `/` - Focus search box
 - `Enter` / `Esc` - Move focus to results table
 - `c` - Copy password to clipboard
+- `t` - Copy TOTP code to clipboard
 - `u` - Copy username to clipboard
 - `o` - Copy URI to clipboard
 - `s` - Show password on screen

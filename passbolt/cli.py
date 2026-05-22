@@ -12,6 +12,7 @@ from pathlib import Path
 from passbolt.client import PassboltClient
 from passbolt.commands import (
     copy_password,
+    copy_totp,
     export_password,
     search_passwords,
     show_password,
@@ -61,6 +62,12 @@ def main() -> None:
     )
     export_parser.add_argument("pass_path", help="Path in password-store")
 
+    # TOTP command
+    totp_parser = subparsers.add_parser("totp", help="Generate and copy TOTP code")
+    totp_parser.add_argument(
+        "password_name", help="Name or UUID of the resource with TOTP"
+    )
+
     # TUI command
     subparsers.add_parser("tui", help="Launch interactive terminal UI")
 
@@ -107,6 +114,8 @@ def main() -> None:
                 show_password(client, args.password_name)
             case "export":
                 export_password(client, args.password_name, args.pass_path)
+            case "totp":
+                copy_totp(client, args.password_name, config)
             case "tui":
                 run_tui(client, config)
     except KeyboardInterrupt:

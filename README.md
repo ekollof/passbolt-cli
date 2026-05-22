@@ -6,6 +6,7 @@ A command-line interface for [Passbolt](https://www.passbolt.com/) password mana
 
 - **Copy passwords to clipboard** - Quickly copy passwords without leaving the terminal
 - **Search passwords** - Find passwords by name, username, or URI
+- **TOTP support** - Generate and copy 2FA codes for TOTP-enabled resources
 - **Interactive TUI** - Browse and search passwords in a terminal user interface
 - **Export to pass** - Seamlessly migrate passwords to password-store
 - **GPG authentication** - Uses your Passbolt recovery private key for authentication
@@ -167,6 +168,21 @@ passbolt show gmail
 
 This will display the password on stdout in pass-compatible format.
 
+### Generate a TOTP code
+
+If a resource has TOTP data (2FA), generate and copy the code:
+
+```bash
+passbolt totp <password-name-or-uuid>
+```
+
+Example:
+```bash
+passbolt totp github
+```
+
+The TOTP code will be copied to your clipboard. If no clipboard tool is available, it will be printed to stdout. TOTP-enabled resources are marked with `[TOTP]` in search results.
+
 ### Search for passwords
 
 ```bash
@@ -193,6 +209,7 @@ Keyboard shortcuts:
 - `/` - Focus search box
 - `Enter` / `Esc` - Move focus to results table (keeps filtered results)
 - `c` - Copy password to clipboard
+- `t` - Copy TOTP code to clipboard
 - `u` - Copy username to clipboard
 - `o` - Copy URI to clipboard
 - `s` - Show password on screen

@@ -25,7 +25,7 @@ from textual.widgets import (
 
 from passbolt.client import PassboltClient
 from passbolt.config import PassboltConfig
-from passbolt.secret import get_password_field
+from passbolt.secret import get_password_field, get_totp_for_resource, has_totp
 from passbolt.theme import load_wallust_theme
 
 
@@ -58,6 +58,11 @@ class ResourceDetail(Static):
         resource_id = resource.get("id")
         if resource_id:
             lines.append(f"[dim]ID:[/dim]          {self._escape(resource_id)}")
+
+        if has_totp(resource):
+            lines.append(
+                "[dim]TOTP:[/dim]        [green]Available[/green] (press [b]t[/b] to copy)"
+            )
 
         self.update("\n".join(lines))
 
@@ -98,6 +103,7 @@ class PassboltTUI(App[None]):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("c", "copy_password", "Copy Password"),
+        Binding("t", "copy_totp", "Copy TOTP"),
         Binding("u", "copy_username", "Copy Username"),
         Binding("o", "copy_uri", "Copy URI"),
         Binding("s", "show_secret", "Show Secret"),
@@ -530,6 +536,45 @@ class PassboltTUI(App[None]):
 
         self._copy_text_to_clipboard(uri, f"URI for '{resource.get('name', '')}'")
 
+    @work(thread=True)
+    def action_copy_totp(self) -> None:
+        """Generate and copy TOTP code for selected resource"""
+        resource = self.selected_resource
+        if not resource:
+            self.notify("No resource selected", severity="warning")
+            return
+
+        if not has_totp(resource):
+            self.notify("No TOTP for this resource", severity="warning")
+            return
+
+        resource_id = resource.get("id")
+        if not resource_id:
+            return
+
+        try:
+            secret = self.client.get_secret(resource_id)
+            totp_code = get_totp_for_resource(secret)
+            if totp_code is None:
+                self.call_from_thread(
+                    self.notify, "Could not extract TOTP data", severity="error"
+                )
+                return
+            success, result = self._do_clipboard_copy(totp_code)
+            if success:
+                self.call_from_thread(
+                    self._on_clipboard_copy_success,
+                    result,
+                    f"TOTP for '{resource.get('name', '')}' copied to clipboard",
+                    f"TOTP for '{resource.get('name', '')}'",
+                )
+            else:
+                self.call_from_thread(self.notify, result, severity="error")
+        except Exception as e:
+            self.call_from_thread(
+                self.notify, f"Failed to generate TOTP: {e}", severity="error"
+            )
+
     def action_show_secret(self) -> None:
         """Show secret password in a dialog"""
         resource = self.selected_resource
@@ -548,13 +593,21 @@ class PassboltTUI(App[None]):
         """Fetch and show secret in background thread"""
         try:
             password = self._get_password(resource_id)
-            self.call_from_thread(self._push_secret_screen, password, resource)
+            totp_code: str | None = None
+            if has_totp(resource):
+                secret = self.client.get_secret(resource_id)
+                totp_code = get_totp_for_resource(secret)
+            self.call_from_thread(
+                self._push_secret_screen, password, resource, totp_code
+            )
         except Exception as e:
             self.call_from_thread(
                 self.notify, f"Failed to retrieve password: {e}", severity="error"
             )
 
-    def _push_secret_screen(self, password: str, resource: dict[str, Any]) -> None:
+    def _push_secret_screen(
+        self, password: str, resource: dict[str, Any], totp_code: str | None
+    ) -> None:
         """Push a screen showing the secret"""
 
         class SecretScreen(Screen[None]):
@@ -565,16 +618,26 @@ class PassboltTUI(App[None]):
                 Binding("escape", "app.pop_screen", "Close"),
             ]
 
-            def __init__(self, password: str, resource: dict[str, Any]) -> None:
+            def __init__(
+                self,
+                password: str,
+                resource: dict[str, Any],
+                totp_code: str | None,
+            ) -> None:
                 super().__init__()
                 self.password = password
                 self.resource = resource
+                self.totp_code = totp_code
 
             def compose(self) -> ComposeResult:
                 lines: list[str] = []
                 lines.append(f"[b]{resource.get('name', 'Unknown')}[/b]\n")
                 lines.append("[b]Password[/b]")
                 lines.append(f"[reverse]{password}[/reverse]\n")
+
+                if totp_code:
+                    lines.append("[b]TOTP[/b]")
+                    lines.append(f"[reverse]{totp_code}[/reverse]\n")
 
                 username = resource.get("username")
                 if username:
@@ -594,7 +657,7 @@ class PassboltTUI(App[None]):
                     classes="center",
                 )
 
-        self.push_screen(SecretScreen(password, resource))
+        self.push_screen(SecretScreen(password, resource, totp_code))
 
     def _check_wallust_theme(self) -> None:
         """Poll wallust colors.json and refresh theme if it changed."""

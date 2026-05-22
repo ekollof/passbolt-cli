@@ -10,7 +10,12 @@ from typing import Any
 
 from passbolt.client import PassboltClient
 from passbolt.config import PassboltConfig
-from passbolt.secret import get_password_field, parse_secret
+from passbolt.secret import (
+    get_password_field,
+    get_totp_for_resource,
+    has_totp,
+    parse_secret,
+)
 
 
 def copy_password(
@@ -125,8 +130,9 @@ def search_passwords(client: PassboltClient, query: str) -> None:
             username = resource.get("username", "")
             uri = resource.get("uri", "")
             description = resource.get("description", "")
+            totp_marker = " [TOTP]" if has_totp(resource) else ""
 
-            print(f"  • {name}")
+            print(f"  • {name}{totp_marker}")
             print(f"    ID: {resource_id}")
             if username:
                 print(f"    Username: {username}")
@@ -218,8 +224,79 @@ def show_password(client: PassboltClient, password_name: str) -> None:
             output += f"username: {username}\n"
         if uri:
             output += f"url: {uri}\n"
-        print(output, end="")
-
     except Exception as e:
         print(f"Error retrieving password: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def copy_totp(
+    client: PassboltClient, password_name: str, config: PassboltConfig | None = None
+) -> None:
+    """Generate and copy a TOTP code to the clipboard"""
+    resource: dict[str, Any] | None = client.find_resource_by_name_or_id(password_name)
+
+    if not resource:
+        print(f"Error: Resource '{password_name}' not found", file=sys.stderr)
+        sys.exit(1)
+
+    if not has_totp(resource):
+        print(
+            f"Error: '{resource.get('name', password_name)}' does not have TOTP data",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        resource_id: str = resource["id"]
+        secret: str = client.get_secret(resource_id)
+        totp_code = get_totp_for_resource(secret)
+
+        if totp_code is None:
+            print(
+                f"Error: Could not extract TOTP from '{resource.get('name', password_name)}'",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Copy to clipboard
+        clipboard_cmd: list[str] | None = None
+
+        if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-copy"):
+            clipboard_cmd = ["wl-copy"]
+        elif os.environ.get("DISPLAY"):
+            if shutil.which("xclip"):
+                clipboard_cmd = ["xclip", "-selection", "clipboard", "-i"]
+            elif shutil.which("xsel"):
+                clipboard_cmd = ["xsel", "--clipboard", "--input"]
+        elif shutil.which("pbcopy"):
+            clipboard_cmd = ["pbcopy"]
+
+        if not clipboard_cmd:
+            # No clipboard tool, just print the code
+            print(totp_code)
+            return
+
+        try:
+            proc = subprocess.Popen(
+                clipboard_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if proc.stdin is not None:
+                proc.stdin.write(totp_code.encode("utf-8"))
+                proc.stdin.close()
+            try:
+                proc.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                pass
+        except Exception as e:
+            print(f"Error copying to clipboard: {e}", file=sys.stderr)
+            print(totp_code)
+            return
+
+        print(f"TOTP code for '{resource['name']}' copied to clipboard")
+
+    except Exception as e:
+        print(f"Error generating TOTP: {e}", file=sys.stderr)
         sys.exit(1)

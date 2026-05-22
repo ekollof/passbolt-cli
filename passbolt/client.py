@@ -71,13 +71,19 @@ class PassboltClient:
 
         raise Exception(f"Request failed after {MAX_RETRIES} retries: {last_exception}")
 
-    def get_resources(self, filter_query: str | None = None) -> list[dict[str, Any]]:
+    def get_resources(
+        self,
+        filter_query: str | None = None,
+        resource_type_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Get list of password resources"""
         endpoint = "/resources.json"
 
         params = {}
         if filter_query:
             params["filter[search]"] = filter_query
+        if resource_type_id:
+            params["filter[has-resource-type-id]"] = resource_type_id
 
         response = self._make_request("GET", endpoint, params=params)
         data = response.json()
