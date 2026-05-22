@@ -38,6 +38,21 @@ private_key_path = ~/.passbolt/private_key.asc
 ./passbolt-cli.py search database
 ```
 
+### Interactive TUI
+```bash
+./passbolt-cli.py tui
+```
+
+Keyboard shortcuts:
+- `↑` / `↓` - Navigate entries
+- `/` - Focus search box
+- `Enter` / `Esc` - Move focus to results table
+- `c` - Copy password to clipboard
+- `u` - Copy username to clipboard
+- `o` - Copy URI to clipboard
+- `s` - Show password on screen
+- `q` - Quit
+
 ### Export to password-store
 ```bash
 ./passbolt-cli.py export <passbolt-name> <pass-path>

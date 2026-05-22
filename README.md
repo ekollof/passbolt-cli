@@ -6,6 +6,7 @@ A command-line interface for [Passbolt](https://www.passbolt.com/) password mana
 
 - **Copy passwords to clipboard** - Quickly copy passwords without leaving the terminal
 - **Search passwords** - Find passwords by name, username, or URI
+- **Interactive TUI** - Browse and search passwords in a terminal user interface
 - **Export to pass** - Seamlessly migrate passwords to password-store
 - **GPG authentication** - Uses your Passbolt recovery private key for authentication
 - **INI configuration** - Simple configuration file format
@@ -166,6 +167,26 @@ passbolt search google
 
 This will display all passwords matching "google" with their details and UUIDs.
 
+### Interactive TUI
+
+Launch a terminal user interface for browsing and searching passwords.
+
+```bash
+passbolt tui
+```
+
+Keyboard shortcuts:
+- `↑` / `↓` - Navigate entries
+- `/` - Focus search box
+- `Enter` / `Esc` - Move focus to results table (keeps filtered results)
+- `c` - Copy password to clipboard
+- `u` - Copy username to clipboard
+- `o` - Copy URI to clipboard
+- `s` - Show password on screen
+- `q` - Quit
+
+Search works in real time. Delete the search text to restore all results.
+
 ### Export to password-store
 
 ```bash
@@ -260,7 +281,8 @@ passbolt-cli/
 │   ├── auth.py           # GPG authentication
 │   ├── client.py         # API client
 │   ├── commands.py       # Command implementations
-│   └── config.py         # Configuration handling
+│   ├── config.py         # Configuration handling
+│   └── tui.py            # Terminal user interface
 ├── requirements.txt      # Python dependencies
 ├── setup.py             # Package setup
 ├── config.ini.example   # Example configuration
