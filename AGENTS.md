@@ -14,6 +14,7 @@ passbolt/
 ├── commands.py       # CLI command implementations (copy, search, show, export)
 ├── config.py         # INI configuration parsing and validation
 ├── cli.py            # Argument parsing and main entry point
+├── secret.py         # Shared secret parsing (json.loads, not eval)
 ├── theme.py          # Wallust/pywal theme loader for TUI
 └── tui.py            # Textual-based TUI application (interactive mode)
 ```

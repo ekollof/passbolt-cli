@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 from urllib.parse import urljoin
 
@@ -9,6 +10,9 @@ import requests
 
 from passbolt.auth import PassboltAuth
 from passbolt.config import PassboltConfig
+
+MAX_RETRIES = 3
+RETRY_BACKOFF = 1.0  # seconds, doubled each retry
 
 
 class PassboltClient:
@@ -39,20 +43,33 @@ class PassboltClient:
             raise Exception(f"Authentication failed: {e}")
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
-        """Make an authenticated request to the API"""
+        """Make an authenticated request to the API with retry logic"""
         url = urljoin(self.base_url, endpoint)
-        response = self.session.request(method, url, **kwargs)
 
-        # Handle session expiration
-        match response.status_code:
-            case 401 | 403:
-                # Re-authenticate
-                self._authenticate()
-                # Retry request
+        last_exception: Exception | None = None
+        for attempt in range(MAX_RETRIES):
+            try:
                 response = self.session.request(method, url, **kwargs)
 
-        response.raise_for_status()
-        return response
+                # Handle session expiration
+                match response.status_code:
+                    case 401 | 403:
+                        # Re-authenticate and retry
+                        self._authenticate()
+                        response = self.session.request(method, url, **kwargs)
+
+                response.raise_for_status()
+                return response
+            except requests.exceptions.ConnectionError as e:
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_BACKOFF * (2**attempt))
+            except requests.exceptions.Timeout as e:
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_BACKOFF * (2**attempt))
+
+        raise Exception(f"Request failed after {MAX_RETRIES} retries: {last_exception}")
 
     def get_resources(self, filter_query: str | None = None) -> list[dict[str, Any]]:
         """Get list of password resources"""
@@ -158,7 +175,7 @@ class PassboltClient:
             # Try to fetch by ID directly
             try:
                 return self.get_resource_by_id(identifier)
-            except Exception:
+            except (requests.exceptions.HTTPError, ValueError):
                 pass
 
         # Fall back to name search

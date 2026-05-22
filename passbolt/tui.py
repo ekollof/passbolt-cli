@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import sys
@@ -26,6 +25,7 @@ from textual.widgets import (
 
 from passbolt.client import PassboltClient
 from passbolt.config import PassboltConfig
+from passbolt.secret import get_password_field
 from passbolt.theme import load_wallust_theme
 
 
@@ -375,20 +375,21 @@ class PassboltTUI(App[None]):
             return self._secret_cache[resource_id]
 
         secret = self.client.get_secret(resource_id)
-        password = self._parse_password(secret)
+        password = get_password_field(secret)
         self._secret_cache[resource_id] = password
         return password
 
-    @staticmethod
-    def _parse_password(secret: str) -> str:
-        """Parse password from secret string"""
-        try:
-            secret_data = json.loads(secret) if isinstance(secret, str) else secret
-            if isinstance(secret_data, dict) and "password" in secret_data:
-                return str(secret_data["password"])
-        except Exception:
-            pass
-        return secret
+    def _clear_secret_cache(self) -> None:
+        """Overwrite and clear cached passwords from memory"""
+        for key in list(self._secret_cache.keys()):
+            # Overwrite with dummy data to reduce lingering in memory
+            self._secret_cache[key] = "x" * len(self._secret_cache[key])
+        self._secret_cache.clear()
+
+    def action_quit(self) -> None:
+        """Quit the app, clearing sensitive data first"""
+        self._clear_secret_cache()
+        super().action_quit()
 
     @staticmethod
     def _do_clipboard_copy(text: str) -> tuple[bool, str | list[str]]:

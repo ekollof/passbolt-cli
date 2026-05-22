@@ -10,6 +10,7 @@ from typing import Any
 
 from passbolt.client import PassboltClient
 from passbolt.config import PassboltConfig
+from passbolt.secret import get_password_field, parse_secret
 
 
 def copy_password(
@@ -27,16 +28,7 @@ def copy_password(
     try:
         resource_id: str = resource["id"]
         secret: str = client.get_secret(resource_id)
-
-        # Parse secret if it's JSON
-        try:
-            secret_data = eval(secret) if isinstance(secret, str) else secret
-            if isinstance(secret_data, dict) and "password" in secret_data:
-                password: str = secret_data["password"]
-            else:
-                password = secret
-        except Exception:
-            password = secret
+        password: str = get_password_field(secret)
 
         # Copy to clipboard using system clipboard tools
         # Try different clipboard mechanisms in order of preference
@@ -162,27 +154,20 @@ def export_password(client: PassboltClient, password_name: str, pass_path: str) 
     try:
         resource_id = resource["id"]
         secret = client.get_secret(resource_id)
+        secret_data = parse_secret(secret)
 
-        # Parse secret if it's JSON
-        try:
-            secret_data = eval(secret) if isinstance(secret, str) else secret
-            if isinstance(secret_data, dict):
-                password = secret_data.get("password", secret)
-                username = resource.get("username", "")
-                uri = resource.get("uri", "")
+        password = secret_data.get("password", secret)
+        username = resource.get("username", "")
+        uri = resource.get("uri", "")
 
-                # Build multiline pass entry
-                pass_content = password
-                if username or uri:
-                    pass_content += "\n"
-                if username:
-                    pass_content += f"username: {username}\n"
-                if uri:
-                    pass_content += f"url: {uri}\n"
-            else:
-                pass_content = secret
-        except Exception:
-            pass_content = secret
+        # Build multiline pass entry
+        pass_content = password
+        if username or uri:
+            pass_content += "\n"
+        if username:
+            pass_content += f"username: {username}\n"
+        if uri:
+            pass_content += f"url: {uri}\n"
 
         # Insert into pass
         result = subprocess.run(
@@ -219,28 +204,21 @@ def show_password(client: PassboltClient, password_name: str) -> None:
     try:
         resource_id = resource["id"]
         secret = client.get_secret(resource_id)
+        secret_data = parse_secret(secret)
 
-        # Parse secret if it's JSON
-        try:
-            secret_data = eval(secret) if isinstance(secret, str) else secret
-            if isinstance(secret_data, dict):
-                password = secret_data.get("password", secret)
-                username = resource.get("username", "")
-                uri = resource.get("uri", "")
+        password = secret_data.get("password", secret)
+        username = resource.get("username", "")
+        uri = resource.get("uri", "")
 
-                # Build output in pass format
-                output = password
-                if username or uri:
-                    output += "\n"
-                if username:
-                    output += f"username: {username}\n"
-                if uri:
-                    output += f"url: {uri}\n"
-                print(output, end="")
-            else:
-                print(secret)
-        except Exception:
-            print(secret)
+        # Build output in pass format
+        output = password
+        if username or uri:
+            output += "\n"
+        if username:
+            output += f"username: {username}\n"
+        if uri:
+            output += f"url: {uri}\n"
+        print(output, end="")
 
     except Exception as e:
         print(f"Error retrieving password: {e}", file=sys.stderr)

@@ -297,6 +297,8 @@ passbolt-cli/
 │   ├── client.py         # API client
 │   ├── commands.py       # Command implementations
 │   ├── config.py         # Configuration handling
+│   ├── secret.py         # Secret parsing utilities
+│   ├── theme.py          # Wallust/pywal theme loader
 │   └── tui.py            # Terminal user interface
 ├── pyproject.toml        # Project configuration and dependencies
 ├── config.ini.example   # Example configuration
