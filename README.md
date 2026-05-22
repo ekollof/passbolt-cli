@@ -55,9 +55,9 @@ git clone https://github.com/ekollof/passbolt-cli.git
 cd passbolt-cli
 ```
 
-2. Install dependencies:
+2. Install in development mode:
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
 3. Run directly with Python:
@@ -283,8 +283,7 @@ passbolt-cli/
 │   ├── commands.py       # Command implementations
 │   ├── config.py         # Configuration handling
 │   └── tui.py            # Terminal user interface
-├── requirements.txt      # Python dependencies
-├── setup.py             # Package setup
+├── pyproject.toml        # Project configuration and dependencies
 ├── config.ini.example   # Example configuration
 └── README.md            # This file
 ```

@@ -26,7 +26,7 @@ gpg --version > /dev/null || {
 # Install dependencies
 echo ""
 echo "Installing Python dependencies..."
-pip3 install -r requirements.txt
+pip3 install -e .
 
 # Make CLI executable
 echo "Making CLI executable..."
