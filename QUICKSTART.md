@@ -3,6 +3,13 @@
 ## Installation
 
 ```bash
+# Using uv (recommended)
+uv tool install -e .
+
+# Using pipx
+pipx install -e .
+
+# Or use the install script (auto-detects uv or pipx)
 ./install.sh
 ```
 
@@ -21,26 +28,26 @@ private_key_path = ~/.passbolt/private_key.asc
 
 ### Copy password to clipboard
 ```bash
-./passbolt-cli.py copy <name>
+passbolt copy <name>
 
 # Examples:
-./passbolt-cli.py copy gmail
-./passbolt-cli.py copy "My GitHub Account"
+passbolt copy gmail
+passbolt copy "My GitHub Account"
 ```
 
 ### Search for passwords
 ```bash
-./passbolt-cli.py search <query>
+passbolt search <query>
 
 # Examples:
-./passbolt-cli.py search google
-./passbolt-cli.py search aws
-./passbolt-cli.py search database
+passbolt search google
+passbolt search aws
+passbolt search database
 ```
 
 ### Interactive TUI
 ```bash
-./passbolt-cli.py tui
+passbolt tui
 ```
 
 Keyboard shortcuts:
@@ -55,19 +62,19 @@ Keyboard shortcuts:
 
 ### Export to password-store
 ```bash
-./passbolt-cli.py export <passbolt-name> <pass-path>
+passbolt export <passbolt-name> <pass-path>
 
 # Examples:
-./passbolt-cli.py export gmail Email/gmail
-./passbolt-cli.py export "Production DB" Work/databases/prod
+passbolt export gmail Email/gmail
+passbolt export "Production DB" Work/databases/prod
 ```
 
 ### Use custom config
 ```bash
-./passbolt-cli.py -c /path/to/config.ini <command>
+passbolt -c /path/to/config.ini <command>
 
 # Example:
-./passbolt-cli.py -c ~/work/passbolt.ini search project
+passbolt -c ~/work/passbolt.ini search project
 ```
 
 ## Workflow Examples
@@ -75,31 +82,31 @@ Keyboard shortcuts:
 ### Daily usage
 ```bash
 # Find a password
-./passbolt-cli.py search github
+passbolt search github
 
 # Copy it
-./passbolt-cli.py copy github
+passbolt copy github
 ```
 
 ### Migration to pass
 ```bash
 # Search for all work passwords
-./passbolt-cli.py search work
+passbolt search work
 
 # Export them one by one
-./passbolt-cli.py export "Work Email" Work/email
-./passbolt-cli.py export "Work VPN" Work/vpn
-./passbolt-cli.py export "Work Database" Work/database
+passbolt export "Work Email" Work/email
+passbolt export "Work VPN" Work/vpn
+passbolt export "Work Database" Work/database
 ```
 
 ### Batch operations
 ```bash
 # List all passwords matching a pattern
-./passbolt-cli.py search aws
+passbolt search aws
 
 # Copy each one as needed
-./passbolt-cli.py copy "AWS Production"
-./passbolt-cli.py copy "AWS Staging"
+passbolt copy "AWS Production"
+passbolt copy "AWS Staging"
 ```
 
 ## Troubleshooting
@@ -123,14 +130,14 @@ curl -I https://your-passbolt-server.com
 ### Enable debug output
 ```bash
 # Add -v or --verbose flag (if implemented)
-./passbolt-cli.py -v search test
+passbolt -v search test
 ```
 
 ## Tips
 
 1. **Password names are case-insensitive** - `gmail`, `Gmail`, and `GMAIL` all work
 2. **Partial matching** - Searching for "git" will find "github", "gitlab", etc.
-3. **Use quotes for names with spaces** - `./passbolt-cli.py copy "My Password"`
+3. **Use quotes for names with spaces** - `passbolt copy "My Password"`
 4. **Clipboard is temporary** - The password is only copied, not displayed
 5. **Export preserves metadata** - Username and URL are included in pass exports
 

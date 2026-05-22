@@ -94,6 +94,7 @@ Optional: `passphrase`, `clipboard_timeout` (default 45s), `user_fingerprint`
 
 ## Building/Installing
 ```bash
-pipx install .        # Recommended
-pip install -e .      # Development mode
+uv tool install -e .     # Recommended
+pipx install -e .        # Alternative
+pip install -e .         # Development mode
 ```

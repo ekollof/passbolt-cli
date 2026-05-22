@@ -19,7 +19,20 @@ A command-line interface for [Passbolt](https://www.passbolt.com/) password mana
 
 ## Installation
 
-### Using pipx (recommended)
+### Using uv (recommended)
+
+[uv](https://docs.astral.sh/uv/) is a fast Python package manager and runtime. It installs tools in isolated environments:
+
+```bash
+# Install from git repository
+uv tool install git+https://github.com/ekollof/passbolt-cli.git
+
+# Or install from local directory
+cd /path/to/passbolt-cli
+uv tool install -e .
+```
+
+### Using pipx
 
 [pipx](https://pipx.pypa.io/) installs Python applications in isolated environments:
 
@@ -29,10 +42,10 @@ pipx install git+https://github.com/ekollof/passbolt-cli.git
 
 # Or install from local directory
 cd /path/to/passbolt-cli
-pipx install .
+pipx install -e .
 ```
 
-This will install the `passbolt` command globally and keep it isolated from other Python packages.
+Both `uv` and `pipx` will install the `passbolt` command globally while keeping it isolated from other Python packages.
 
 ### Using pip
 
@@ -123,7 +136,7 @@ Your private key is the same key used for account recovery in the Passbolt brows
 
 ## Usage
 
-After installation with pipx or pip, the `passbolt` command will be available globally.
+After installation with uv, pipx, or pip, the `passbolt` command will be available globally.
 
 ### Copy a password to clipboard
 

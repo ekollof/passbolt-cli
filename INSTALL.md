@@ -1,27 +1,20 @@
 # Installation Guide
 
-## Quick Start with pipx (Recommended)
+## Quick Start with uv (Recommended)
 
-pipx installs Python applications in isolated environments, preventing dependency conflicts.
+[uv](https://docs.astral.sh/uv/) is a fast Python package manager and runtime. It installs tools in isolated environments without dependency conflicts.
 
-### 1. Install pipx (if not already installed)
+### 1. Install uv (if not already installed)
 
 ```bash
-# On Debian/Ubuntu
-sudo apt install pipx
-pipx ensurepath
+# Using the official installer
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# On Fedora
-sudo dnf install pipx
-pipx ensurepath
+# On macOS with Homebrew
+brew install uv
 
-# On macOS
-brew install pipx
-pipx ensurepath
-
-# Using pip
-python3 -m pip install --user pipx
-python3 -m pipx ensurepath
+# Or using pipx
+pipx install uv
 ```
 
 After installation, restart your shell or run:
@@ -34,18 +27,33 @@ source ~/.bashrc  # or ~/.zshrc
 #### From local directory:
 ```bash
 cd /path/to/passbolt-cli
-pipx install .
+uv tool install -e .
 ```
 
 #### From git repository:
 ```bash
-pipx install git+https://github.com/ekollof/passbolt-cli.git
+uv tool install git+https://github.com/ekollof/passbolt-cli.git
 ```
 
 ### 3. Verify installation
 
 ```bash
 passbolt --help
+```
+
+## Alternative: Using pipx
+
+If you prefer [pipx](https://pipx.pypa.io/) over uv:
+
+```bash
+# Install pipx (if not already installed)
+python3 -m pip install --user pipx
+pipx ensurepath
+
+# Install passbolt-cli
+pipx install -e .          # From local directory
+# or
+pipx install git+https://github.com/ekollof/passbolt-cli.git
 ```
 
 ## Configuration
@@ -94,24 +102,38 @@ passbolt show <password-name>
 To update to the latest version:
 
 ```bash
-# From git
+# With uv
+uv tool upgrade passbolt-cli
+
+# Or reinstall from local directory
+cd /path/to/passbolt-cli
+git pull
+uv tool install --force -e .
+```
+
+```bash
+# With pipx
 pipx upgrade passbolt-cli
 
 # Or reinstall from local directory
 cd /path/to/passbolt-cli
 git pull
-pipx install --force .
+pipx install --force -e .
 ```
 
 ## Uninstalling
 
 ```bash
+# With uv
+uv tool uninstall passbolt-cli
+
+# With pipx
 pipx uninstall passbolt-cli
 ```
 
 ## Alternative: Install with pip
 
-If you prefer pip over pipx:
+If you prefer pip over uv or pipx:
 
 ```bash
 # Install for current user
@@ -121,7 +143,7 @@ pip install --user .
 sudo pip install .
 ```
 
-Note: Using pipx is recommended to avoid dependency conflicts with other Python packages.
+Note: Using uv or pipx is recommended to avoid dependency conflicts with other Python packages.
 
 ## System Requirements
 
@@ -148,18 +170,19 @@ sudo dnf install xclip
 
 ### Command not found after installation
 
-Run `pipx ensurepath` and restart your shell.
+If using pipx, run `pipx ensurepath` and restart your shell.
+If using uv, ensure `~/.local/bin` is in your PATH.
 
 ### Permission errors
 
-Use `pipx` instead of `sudo pipx`.
+Use `uv` or `pipx` instead of `sudo pip`.
 
 ### Dependency conflicts
 
-This is why pipx is recommended - it creates isolated environments. If using pip, consider using a virtual environment:
+This is why uv or pipx is recommended — they create isolated environments. If using pip, consider using a virtual environment:
 
 ```bash
 python3 -m venv ~/.local/venvs/passbolt
 source ~/.local/venvs/passbolt/bin/activate
-pip install .
+pip install -e .
 ```

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Quick installation script for Passbolt CLI
+# Prefers uv (https://github.com/astral-sh/uv), falls back to pipx
 
 set -e
 
@@ -23,14 +24,46 @@ gpg --version > /dev/null || {
     exit 1
 }
 
-# Install dependencies
-echo ""
-echo "Installing Python dependencies..."
-pip3 install -e .
+# Determine installer: prefer uv, then pipx
+INSTALLER=""
+if command -v uv >/dev/null 2>&1; then
+    INSTALLER="uv"
+    echo "Found uv — using uv tool install"
+elif command -v pipx >/dev/null 2>&1; then
+    INSTALLER="pipx"
+    echo "Found pipx — using pipx install"
+else
+    echo ""
+    echo "Error: Neither uv nor pipx was found."
+    echo ""
+    echo "Please install one of them first:"
+    echo ""
+    echo "  uv (recommended):"
+    echo "    curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo "    # or: brew install uv"
+    echo "    # or: pipx install uv"
+    echo ""
+    echo "  pipx:"
+    echo "    python3 -m pip install --user pipx"
+    echo "    pipx ensurepath"
+    echo ""
+    exit 1
+fi
 
-# Make CLI executable
-echo "Making CLI executable..."
-chmod +x passbolt-cli.py
+# Install the tool
+echo ""
+echo "Installing Passbolt CLI..."
+if [ "$INSTALLER" = "uv" ]; then
+    uv tool install -e .
+elif [ "$INSTALLER" = "pipx" ]; then
+    pipx install -e .
+fi
+
+# Make CLI executable (for direct invocation without install)
+if [ -f passbolt-cli.py ]; then
+    echo "Making CLI executable..."
+    chmod +x passbolt-cli.py
+fi
 
 # Create config directory
 echo "Creating configuration directory..."
@@ -56,6 +89,6 @@ echo "1. Edit your configuration: nano ~/.config/passbolt/config.ini"
 echo "2. Add your Passbolt server URL"
 echo "3. Add your Passbolt username (email address)"
 echo "4. Save your GPG private key to ~/.passbolt/private_key.asc"
-echo "5. Run: ./passbolt-cli.py search test"
+echo "5. Run: passbolt search test"
 echo ""
-echo "For help, run: ./passbolt-cli.py --help"
+echo "For help, run: passbolt --help"
