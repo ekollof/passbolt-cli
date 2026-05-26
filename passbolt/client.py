@@ -13,6 +13,7 @@ from passbolt.config import PassboltConfig
 
 MAX_RETRIES = 3
 RETRY_BACKOFF = 1.0  # seconds, doubled each retry
+REQUEST_TIMEOUT = 30  # seconds, default for all HTTP requests
 
 
 class PassboltClient:
@@ -45,6 +46,7 @@ class PassboltClient:
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make an authenticated request to the API with retry logic"""
         url = urljoin(self.base_url, endpoint)
+        kwargs.setdefault("timeout", REQUEST_TIMEOUT)
 
         last_exception: Exception | None = None
         for attempt in range(MAX_RETRIES):

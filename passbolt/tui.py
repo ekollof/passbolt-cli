@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -388,14 +387,12 @@ class PassboltTUI(App[None]):
     def _clear_secret_cache(self) -> None:
         """Overwrite and clear cached passwords from memory"""
         for key in list(self._secret_cache.keys()):
-            # Overwrite with dummy data to reduce lingering in memory
             self._secret_cache[key] = "x" * len(self._secret_cache[key])
         self._secret_cache.clear()
 
-    def action_quit(self) -> None:
-        """Quit the app, clearing sensitive data first"""
+    def on_unmount(self) -> None:
+        """Clean up sensitive data when app is shutting down"""
         self._clear_secret_cache()
-        super().action_quit()
 
     @staticmethod
     def _do_clipboard_copy(text: str) -> tuple[bool, str | list[str]]:
@@ -677,6 +674,20 @@ class PassboltTUI(App[None]):
 
 def run_tui(client: PassboltClient, config: PassboltConfig) -> None:
     """Run the Passbolt TUI"""
+    import os
+    import signal
+
     app = PassboltTUI(client, config)
-    app.run()
-    sys.exit(0)
+
+    def _sigint_handler(sig: int, frame: Any) -> None:
+        nonlocal app
+        if app._is_running:
+            app.exit()
+        else:
+            os._exit(130)
+
+    original_handler = signal.signal(signal.SIGINT, _sigint_handler)
+    try:
+        app.run()
+    finally:
+        signal.signal(signal.SIGINT, original_handler)
