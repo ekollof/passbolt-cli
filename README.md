@@ -5,18 +5,26 @@ A command-line interface for [Passbolt](https://www.passbolt.com/) password mana
 ## Features
 
 - **Copy passwords to clipboard** - Quickly copy passwords without leaving the terminal
-- **Search passwords** - Find passwords by name, username, or URI
+- **pass-style default command** - `passbolt <name>` copies, just like `pass -c`
+- **Search and list passwords** - Find passwords by name, username, URI, or description
 - **TOTP support** - Generate and copy 2FA codes for TOTP-enabled resources
 - **Interactive TUI** - Browse and search passwords in a terminal user interface
 - **Export to pass** - Seamlessly migrate passwords to password-store
-- **GPG authentication** - Uses your Passbolt recovery private key for authentication
+- **Auto-clear clipboard** - Clears sensitive data after a configurable timeout (default 45s)
+- **Script-friendly output** - Quiet mode and JSON output for automation
+- **GPG and JWT authentication** - GPGAuth by default with optional JWT fallback
+- **Passbolt API 5.0 compatibility** - CSRF tokens, pagination, MFA, and v5 encrypted metadata
 - **INI configuration** - Simple configuration file format
 
 ## Requirements
 
 - Python 3.10 or higher
 - GPG (GnuPG)
-- password-store (`pass`) - optional, only needed for export command
+- Clipboard tool (one of):
+  - Linux/Wayland: [wl-clipboard](https://github.com/bugaevc/wl-clipboard) (`wl-copy` / `wl-paste`)
+  - Linux/X11: `xclip` or `xsel`
+  - macOS: `pbcopy` / `pbpaste` (built-in)
+- password-store (`pass`) - optional, only needed for the export command
 
 ## Installation
 
@@ -81,6 +89,14 @@ python -m passbolt copy <password-name>
 ./passbolt-cli.py copy <password-name>
 ```
 
+### Shell completion (bash)
+
+```bash
+source completions/passbolt.bash
+```
+
+Add that line to your `~/.bashrc` to enable tab completion for commands and flags.
+
 ## Configuration
 
 1. Create the configuration directory:
@@ -106,6 +122,10 @@ Required settings:
 Optional settings:
 - `passphrase`: Your GPG key passphrase (not recommended to store in plain text)
 - `passphrase = exec:<command>`: Execute a command to retrieve the passphrase securely
+- `clipboard_timeout`: Seconds before the clipboard is auto-cleared (default: `45`; set to `0` to disable)
+- `user_fingerprint`: Your GPG key fingerprint (optional)
+
+You can also point at a config file via the `PASSBOLT_CONFIG` environment variable or the `-c` flag.
 
 ### Secure Passphrase Retrieval
 
@@ -139,21 +159,30 @@ Your private key is the same key used for account recovery in the Passbolt brows
 
 After installation with uv, pipx, or pip, the `passbolt` command will be available globally.
 
+### Quick copy (pass-style)
+
+The most common action works like `pass -c`:
+
+```bash
+passbolt gmail
+```
+
+This is equivalent to `passbolt copy gmail`.
+
 ### Copy a password to clipboard
 
 ```bash
 passbolt copy <password-name-or-uuid>
 ```
 
-Example:
+Examples:
 ```bash
 passbolt copy gmail
-# Or use UUID for exact match
-passbolt search gmail  # Get the UUID
-passbolt copy a1b2c3d4-e5f6-7890-abcd-ef1234567890
+passbolt -q copy gmail          # No status messages on stderr
+passbolt copy github --pick     # Interactively pick when multiple names match
 ```
 
-The password will be copied to your clipboard and automatically cleared after 45 seconds (configurable).
+The password is copied to your clipboard and automatically cleared after 45 seconds (configurable). Clearing is content-aware: if you copy something else in the meantime, the old secret is left alone.
 
 ### Show a password
 
@@ -161,12 +190,13 @@ The password will be copied to your clipboard and automatically cleared after 45
 passbolt show <password-name-or-uuid>
 ```
 
-Example:
+Examples:
 ```bash
 passbolt show gmail
+passbolt show gmail -q          # Password only, for scripting
 ```
 
-This will display the password on stdout in pass-compatible format.
+Without `-q`, output is in pass-compatible format (password plus `username:` / `url:` lines).
 
 ### Generate a TOTP code
 
@@ -181,7 +211,7 @@ Example:
 passbolt totp github
 ```
 
-The TOTP code will be copied to your clipboard. If no clipboard tool is available, it will be printed to stdout. TOTP-enabled resources are marked with `[TOTP]` in search results.
+The TOTP code is copied to your clipboard (or printed to stdout if no clipboard tool is available). TOTP-enabled resources are marked with `[TOTP]` in search and list output.
 
 ### Search for passwords
 
@@ -189,12 +219,20 @@ The TOTP code will be copied to your clipboard. If no clipboard tool is availabl
 passbolt search <query>
 ```
 
-Example:
+Examples:
 ```bash
 passbolt search google
+passbolt search api --json      # Machine-readable output
+passbolt search aws -q          # Names only, one per line
 ```
 
-This will display all passwords matching "google" with their details and UUIDs.
+### List all passwords
+
+```bash
+passbolt list
+passbolt list --json
+passbolt list -q                # Names only
+```
 
 ### Interactive TUI
 
@@ -207,15 +245,17 @@ passbolt tui
 Keyboard shortcuts:
 - `↑` / `↓` - Navigate entries
 - `/` - Focus search box
-- `Enter` / `Esc` - Move focus to results table (keeps filtered results)
+- `Enter` - Copy password (when the table is focused)
+- `Esc` - Move focus from search to results table
 - `c` - Copy password to clipboard
 - `t` - Copy TOTP code to clipboard
 - `u` - Copy username to clipboard
 - `o` - Copy URI to clipboard
-- `s` - Show password on screen
+- `s` - Show password on screen (`c` to copy from that screen)
+- `r` - Refresh resource list from server
 - `q` - Quit
 
-Search works in real time. Delete the search text to restore all results.
+Search is debounced and filters in real time. TOTP entries show a live countdown in the detail panel (e.g. `123456 (18s)`). After copying, the footer shows a clipboard clear countdown.
 
 **Theming:** The TUI supports dynamic theming via [wallust](https://codeberg.org/explosion-mental/wallust) / [pywal](https://github.com/dylanaraps/pywal). If `~/.cache/wal/colors.json` exists, the TUI will automatically pick up your color scheme and refresh when it changes.
 
@@ -230,50 +270,86 @@ Example:
 passbolt export "My Gmail" Email/gmail
 ```
 
-This will export the password to password-store at `Email/gmail`.
+This exports the password to password-store at `Email/gmail`.
 
-### Custom configuration file
+### Global flags
 
-You can specify a custom configuration file:
+| Flag | Description |
+|------|-------------|
+| `-c`, `--config` | Path to configuration file |
+| `-q`, `--quiet` | Reduce output (see per-command behaviour above) |
+| `--pick` | Interactively choose when multiple resources match (`copy`, `show`, `totp`, `export`) |
+| `--json` | JSON output (`search`, `list`) |
 
-```bash
-passbolt -c /path/to/config.ini copy gmail
-```
+Environment variables:
+- `PASSBOLT_CONFIG` - Default path to the configuration file
 
 ## Examples
 
 ```bash
-# Copy your GitHub password
-passbolt copy github
+# pass-style quick copy
+passbolt github
 
-# Show a password on stdout
-passbolt show github
+# Show password for use in a script
+passbolt show github -q
 
-# Search for all AWS-related passwords
-passbolt search aws
+# Search and pipe to fzf
+passbolt search -q "" | fzf
 
-# Copy by UUID (useful when multiple matches or special characters in name)
+# List everything as JSON
+passbolt list --json | jq '.[].name'
+
+# Disambiguate multiple matches
+passbolt copy git --pick
+
+# Copy by UUID (exact match)
 passbolt copy a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 # Export a password to pass
 passbolt export "Production Database" Work/db/production
+
+# Custom config file
+passbolt -c ~/.config/passbolt/work.ini copy gmail
 ```
 
 ## How It Works
 
-1. **Authentication**: The CLI uses your GPG private key to authenticate with the Passbolt API, similar to how the browser extension works during account recovery.
+1. **Authentication**: The CLI authenticates with the Passbolt API using GPGAuth (default) or JWT (`auth_method = jwt`). With `auth_method = auto`, GPGAuth is tried first and JWT is used as a fallback. Authentication is deferred until the first API request. Optional server verification (`verify_server = true`) performs GPGAuth stage 0 before login.
 
-2. **API Communication**: All communication with Passbolt happens through its REST API over HTTPS.
+2. **API Communication**: All communication uses the Passbolt REST API over HTTPS with `X-CSRF-Token` on authenticated requests. Collection endpoints such as `/resources.json` are paginated automatically.
 
-3. **Decryption**: Passwords are encrypted with your GPG public key. The CLI uses your private key to decrypt them locally.
+3. **MFA**: If your account requires TOTP MFA, the CLI prompts for a code interactively or uses `mfa_totp_secret` from config for automation.
 
-4. **Clipboard**: The `copy` command uses the system clipboard to temporarily store passwords.
+4. **Metadata**: v4 resources expose cleartext name/username/URI fields. v5 encrypted-metadata resources are decrypted locally using metadata private keys fetched from `/metadata/keys.json`, then normalized to the same fields used by search and list.
+
+5. **Decryption**: Passwords are encrypted with your GPG public key. The CLI uses your private key to decrypt them locally.
+
+6. **Clipboard**: Copy commands use system clipboard tools (`wl-copy`, `xclip`, `xsel`, or `pbcopy`). On Wayland, `wl-copy` stays running as a daemon; the CLI uses non-blocking subprocess handling so the terminal does not hang. After the configured timeout, the clipboard is cleared only if it still contains the copied secret.
+
+## API Compatibility
+
+| Feature | Status |
+|---------|--------|
+| GPGAuth login (`POST /auth/login.json`) | Supported |
+| Optional server verification (stage 0) | Supported (`verify_server = true`) |
+| CSRF token (`csrfToken` cookie + `X-CSRF-Token`) | Supported |
+| JWT login (`POST /auth/jwt/login.json`) | Supported (`auth_method = jwt` or `auto`) |
+| JWT refresh | Supported on session expiry |
+| MFA TOTP (`POST /mfa/verify/totp.json`) | Supported (interactive or `mfa_totp_secret`) |
+| Resource listing with pagination | Supported |
+| v5 encrypted metadata decryption | Supported |
+| Read secrets (`GET /secrets/resource/{id}.json`) | Supported |
+
+For JWT authentication, set `user_id` in config to your Passbolt user UUID. For GPG authentication it is optional and auto-fetched from `/users/me.json`.
 
 ## Security Notes
 
 - Your private key never leaves your machine
 - Passwords are decrypted locally using GPG
 - API communication uses HTTPS
+- Clipboard contents are auto-cleared after a configurable timeout
+- Clipboard clearing is content-aware and skipped if you have pasted something else
+- Cached passwords in the TUI are overwritten when the app exits or the secret screen is closed
 - Consider using a passphrase-protected GPG key
 - Store your configuration file securely with appropriate permissions:
   ```bash
@@ -291,9 +367,14 @@ passbolt export "Production Database" Work/db/production
 
 ### "Password not found" error
 
-- Use the `search` command to find the exact name
-- Password names are case-insensitive
-- The CLI will suggest alternatives if multiple matches are found
+- Use `passbolt search` or `passbolt list` to find the exact name
+- Password names are case-insensitive for matching
+- Use `--pick` when multiple resources match the same query
+
+### Terminal hangs after copy (Wayland)
+
+- Ensure `wl-clipboard` is installed
+- Older versions used blocking clipboard calls; current releases use non-blocking `Popen` with `wl-copy`
 
 ### GPG errors
 
@@ -307,26 +388,36 @@ passbolt export "Production Database" Work/db/production
 
 ```
 passbolt-cli/
-├── passbolt-cli.py       # Main entry point
+├── passbolt-cli.py       # Compatibility entry point (delegates to passbolt.cli)
 ├── passbolt/
 │   ├── __init__.py       # Package initialization
-│   ├── auth.py           # GPG authentication
+│   ├── argv.py           # pass-style default command injection
+│   ├── api_response.py   # API envelope parsing
+│   ├── auth.py           # GPG/JWT authentication and MFA
+│   ├── clipboard.py      # Clipboard copy/clear helpers
 │   ├── client.py         # API client
 │   ├── commands.py       # Command implementations
 │   ├── config.py         # Configuration handling
-│   ├── secret.py         # Secret parsing utilities
+│   ├── gpg.py            # GPG encrypt/decrypt helpers
+│   ├── gpg_util.py       # GPGAuth token helpers
+│   ├── http.py           # Authenticated HTTP with CSRF/pagination
+│   ├── metadata.py       # v5 encrypted metadata decryption
+│   ├── resources.py      # Resource name matching helpers
+│   ├── secret.py         # Secret parsing and TOTP generation
 │   ├── theme.py          # Wallust/pywal theme loader
 │   └── tui.py            # Terminal user interface
+├── completions/
+│   └── passbolt.bash     # Bash shell completion
+├── tests/                # Unit tests
 ├── pyproject.toml        # Project configuration and dependencies
-├── config.ini.example   # Example configuration
-└── README.md            # This file
+├── config.ini.example    # Example configuration
+└── README.md             # This file
 ```
 
 ### Running Tests
 
 ```bash
-# TODO: Add tests
-python -m pytest
+python -m unittest discover -s tests -v
 ```
 
 ## Contributing

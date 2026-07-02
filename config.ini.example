@@ -14,6 +14,20 @@ private_key_path = ~/.passbolt/private_key.asc
 # Your GPG key fingerprint (optional)
 # user_fingerprint = ABCDEF1234567890
 
+# Your Passbolt user UUID (optional for GPG auth, required for JWT auth)
+# Find it in the Passbolt web UI under Profile, or leave unset to auto-fetch via /users/me.json
+# user_id = 8bb80df5-700c-48ce-b568-85a60fc3c8f2
+
+# Authentication method: auto (default), gpg, or jwt
+# auto tries GPGAuth first, then falls back to JWT when GPG fails
+# auth_method = auto
+
+# Verify the Passbolt server identity before login (GPGAuth stage 0)
+# verify_server = false
+
+# MFA TOTP secret for non-interactive MFA (base32, same as your authenticator app)
+# mfa_totp_secret =
+
 # Passphrase for your GPG private key (optional, will prompt if not provided)
 # Leave empty or comment out for better security
 # passphrase = your_gpg_passphrase

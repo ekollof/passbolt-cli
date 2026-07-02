@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any
 
 
+def _parse_bool(value: str | bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def default_config_path() -> Path:
     """Return the default configuration file path."""
     env_path = os.environ.get("PASSBOLT_CONFIG")
@@ -25,8 +31,17 @@ class PassboltConfig:
         self.username: str | None = config_dict.get("username")
         private_key_path_str: str | None = config_dict.get("private_key_path")
         self.user_fingerprint: str | None = config_dict.get("user_fingerprint")
+        self.user_id: str | None = config_dict.get("user_id")
+        self.auth_method: str = config_dict.get("auth_method", "auto").lower()
+        self.verify_server: bool = _parse_bool(config_dict.get("verify_server", "false"))
+        self.mfa_totp_secret: str | None = config_dict.get("mfa_totp_secret") or None
         self._passphrase_config: str = config_dict.get("passphrase", "")
         self.clipboard_timeout: int = int(config_dict.get("clipboard_timeout", "45"))
+
+        if self.auth_method not in {"auto", "gpg", "jwt"}:
+            raise ValueError("auth_method must be one of: auto, gpg, jwt")
+        if self.auth_method == "jwt" and not self.user_id:
+            raise ValueError("user_id is required when auth_method is jwt")
 
         # Validate required fields
         if not self.server_url:
