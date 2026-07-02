@@ -123,9 +123,60 @@ Optional settings:
 - `passphrase`: Your GPG key passphrase (not recommended to store in plain text)
 - `passphrase = exec:<command>`: Execute a command to retrieve the passphrase securely
 - `clipboard_timeout`: Seconds before the clipboard is auto-cleared (default: `45`; set to `0` to disable)
-- `user_fingerprint`: Your GPG key fingerprint (optional)
+- `user_fingerprint`: Your GPG key fingerprint (optional; use when you have multiple keys in the file)
+- `user_id`: Your Passbolt user UUID (required for JWT auth; auto-fetched for GPG auth)
+- `auth_method`: `auto` (default), `gpg`, or `jwt` — see [Authentication methods](#authentication-methods)
+- `verify_server`: `true` or `false` (default `false`) — perform GPGAuth stage-0 server verification before login
+- `mfa_totp_secret`: Base32 TOTP secret for non-interactive MFA (scripts/CI only)
 
 You can also point at a config file via the `PASSBOLT_CONFIG` environment variable or the `-c` flag.
+
+See `config.ini.example` for a fully commented template.
+
+### Authentication methods
+
+| `auth_method` | When to use |
+|---------------|-------------|
+| `auto` (default) | Most setups. Tries GPGAuth first, falls back to JWT if GPG fails. |
+| `gpg` | Standard Passbolt instances with GPGAuth enabled (v4 and most v5 servers). |
+| `jwt` | Servers that require or prefer JWT login. Requires `user_id` in config. |
+
+GPGAuth is the usual choice and needs only `server_url`, `username`, and `private_key_path`. JWT is useful when GPGAuth is disabled or unreliable on your instance.
+
+### Finding your `user_id`
+
+Required only when `auth_method = jwt`. For GPG auth it is optional; the CLI fetches it from `/users/me.json` after login.
+
+1. Log in to Passbolt in your browser.
+2. Open your profile (avatar → **My profile**).
+3. The user UUID appears in the profile URL or account details, e.g. `8bb80df5-700c-48ce-b568-85a60fc3c8f2`.
+
+Alternatively, after a successful GPG login, inspect the JSON from `GET /users/me.json` (browser dev tools or `curl` with session cookies).
+
+### MFA (multi-factor authentication)
+
+If your account has TOTP MFA enabled:
+
+- **Interactive use**: The CLI prompts for a code on first API access after login.
+- **Scripts / CI**: Set `mfa_totp_secret` to the same base32 secret as your authenticator app (not the six-digit code).
+
+```ini
+# Example: automate MFA in a cron job or CI pipeline
+mfa_totp_secret = JBSWY3DPEHPK3PXP
+```
+
+Treat `mfa_totp_secret` like a password: restrict config file permissions (`chmod 600`) and prefer `exec:` to load it from a secret store when possible.
+
+### v5 encrypted metadata
+
+On Passbolt v5 instances with encrypted metadata, resource names and URIs are stored in an encrypted `metadata` field instead of cleartext. The CLI decrypts these locally using metadata private keys from `/metadata/keys.json` and exposes the same `name`, `username`, and `uri` fields used by search and list.
+
+No extra config is needed if:
+
+- Your account has access to the shared metadata keys (same as the browser extension), and
+- You use the same GPG private key registered in Passbolt.
+
+If list/search returns empty names or decryption errors, log in via the browser extension once so metadata keys are provisioned, or ask your administrator to ensure shared metadata keys are distributed to your account.
 
 ### Secure Passphrase Retrieval
 
@@ -345,12 +396,14 @@ For JWT authentication, set `user_id` in config to your Passbolt user UUID. For 
 ## Security Notes
 
 - Your private key never leaves your machine
-- Passwords are decrypted locally using GPG
-- API communication uses HTTPS
+- Passwords and v5 metadata are decrypted locally using GPG
+- API communication uses HTTPS; authenticated requests include CSRF tokens
 - Clipboard contents are auto-cleared after a configurable timeout
 - Clipboard clearing is content-aware and skipped if you have pasted something else
 - Cached passwords in the TUI are overwritten when the app exits or the secret screen is closed
 - Consider using a passphrase-protected GPG key
+- `mfa_totp_secret` grants full API access without prompts — store it as carefully as your GPG passphrase
+- Optional `verify_server = true` checks the server GPG key before login (recommended on first use with a new server)
 - Store your configuration file securely with appropriate permissions:
   ```bash
   chmod 600 ~/.config/passbolt/config.ini
@@ -364,6 +417,29 @@ For JWT authentication, set `user_id` in config to your Passbolt user UUID. For 
 - Ensure your private key file path is correct
 - Check that your private key matches your Passbolt account
 - If your key has a passphrase, make sure it's entered correctly
+- Try `auth_method = gpg` explicitly if `auto` is attempting JWT unexpectedly
+- For JWT-only servers, set `auth_method = jwt` and a valid `user_id`
+
+### MFA prompts fail or block scripts
+
+- Interactive terminal required unless `mfa_totp_secret` is set
+- Ensure the secret is base32 (same as manual authenticator setup), not a one-time code
+- Codes rotate every 30 seconds; retry if the clock on your machine is wrong (`timedatectl`)
+- In CI, use `mfa_totp_secret` or a dedicated service account without MFA
+
+### JWT authentication fails
+
+- Confirm `user_id` matches your Passbolt account UUID
+- Ensure `private_key_path` points to the key registered in Passbolt
+- Check that the server has the JWT authentication plugin enabled
+- CSRF cookie must be present: the CLI fetches `/auth/verify.json` before login automatically
+
+### Empty names or "metadata" errors (v5)
+
+- Log in with the browser extension first to receive metadata private keys
+- Confirm you can see resource names in the web UI with the same account
+- Shared metadata keys must be trusted/imported — contact your Passbolt admin if new keys were rotated
+- Mixed v4/v5 resources are supported; only v5 entries need metadata decryption
 
 ### "Password not found" error
 

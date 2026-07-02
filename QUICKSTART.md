@@ -15,14 +15,30 @@ pipx install -e .
 
 ## Configuration
 
-Edit `~/.config/passbolt/config.ini`:
+Copy and edit `~/.config/passbolt/config.ini` (see `config.ini.example` for all options):
 
 ```ini
 [passbolt]
 server_url = https://passbolt.example.com
 username = user@example.com
 private_key_path = ~/.passbolt/private_key.asc
+passphrase = exec:pass show passbolt/gpg-passphrase
 ```
+
+### Optional (API / auth)
+
+```ini
+# JWT auth or auto-fallback (required for auth_method = jwt)
+# user_id = 8bb80df5-700c-48ce-b568-85a60fc3c8f2
+
+# auto (default) | gpg | jwt
+# auth_method = auto
+
+# Promptless MFA for scripts (base32 secret, not a 6-digit code)
+# mfa_totp_secret = JBSWY3DPEHPK3PXP
+```
+
+Most users only need the three required fields. Use `auth_method = jwt` + `user_id` if GPGAuth is disabled on your server. Set `mfa_totp_secret` only for non-interactive MFA.
 
 ## Common Commands
 
@@ -136,19 +152,25 @@ gpg --list-secret-keys
 curl -I https://your-passbolt-server.com
 ```
 
-### Enable debug output
-```bash
-# Add -v or --verbose flag (if implemented)
-passbolt -v search test
-```
+### Authentication / MFA / v5 metadata
+
+| Symptom | Fix |
+|---------|-----|
+| Auth fails with JWT errors | Set `user_id` and `auth_method = jwt` |
+| MFA prompt in scripts | Add `mfa_totp_secret` or use a non-MFA account |
+| Empty resource names (v5) | Log in via browser extension first to provision metadata keys |
+| GPG works in browser, not CLI | Check `private_key_path` and `user_fingerprint` |
+
+See README.md for full troubleshooting and API compatibility details.
 
 ## Tips
 
 1. **Password names are case-insensitive** - `gmail`, `Gmail`, and `GMAIL` all work
 2. **Partial matching** - Searching for "git" will find "github", "gitlab", etc.
 3. **Use quotes for names with spaces** - `passbolt copy "My Password"`
-4. **Clipboard is temporary** - The password is only copied, not displayed
-5. **Export preserves metadata** - Username and URL are included in pass exports
+4. **pass-style default** - `passbolt gmail` copies, like `pass -c gmail`
+5. **Clipboard auto-clears** - Default 45s; content-aware (won't wipe unrelated clipboard data)
+6. **Export preserves metadata** - Username and URL are included in pass exports (v5 metadata decrypted automatically)
 
 ## Security Best Practices
 
