@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import os
-import shutil
+import json
 import subprocess
 import sys
 from typing import Any
 
+from passbolt.clipboard import (
+    copy_to_clipboard,
+    get_clipboard_cmd,
+    schedule_clipboard_clear,
+)
 from passbolt.client import PassboltClient
 from passbolt.config import PassboltConfig
 from passbolt.secret import (
@@ -18,39 +22,124 @@ from passbolt.secret import (
 )
 
 
-def copy_password(
-    client: PassboltClient, password_name: str, config: PassboltConfig | None = None
-) -> None:
-    """Copy a password to the clipboard"""
-    # Find the resource (by UUID or name)
-    resource: dict[str, Any] | None = client.find_resource_by_name_or_id(password_name)
+class AmbiguousResourceError(Exception):
+    """Raised when multiple resources match a lookup."""
 
-    if not resource:
-        print(f"Error: Password '{password_name}' not found", file=sys.stderr)
+    def __init__(self, matches: list[dict[str, Any]]) -> None:
+        self.matches = matches
+        names = [resource.get("name", "Unknown") for resource in matches[:5]]
+        super().__init__(f"Multiple resources match: {', '.join(names)}")
+
+
+def _resource_summary(resource: dict[str, Any]) -> dict[str, Any]:
+    """Return a JSON-serializable resource summary."""
+    return {
+        "id": resource.get("id", ""),
+        "name": resource.get("name", "Unknown"),
+        "username": resource.get("username", ""),
+        "uri": resource.get("uri", ""),
+        "description": resource.get("description", ""),
+        "has_totp": has_totp(resource),
+    }
+
+
+def pick_resource(matches: list[dict[str, Any]]) -> dict[str, Any]:
+    """Interactively pick a resource when multiple matches exist."""
+    if not sys.stdin.isatty():
+        raise AmbiguousResourceError(matches)
+
+    print("Multiple resources match:", file=sys.stderr)
+    for index, resource in enumerate(matches, start=1):
+        name = resource.get("name", "Unknown")
+        username = resource.get("username", "")
+        suffix = f" ({username})" if username else ""
+        print(f"  {index}. {name}{suffix}", file=sys.stderr)
+
+    while True:
+        try:
+            choice = input("Select [1-{}]: ".format(len(matches)))
+            selected = int(choice)
+            if 1 <= selected <= len(matches):
+                return matches[selected - 1]
+        except (EOFError, KeyboardInterrupt):
+            print(file=sys.stderr)
+            sys.exit(130)
+        except ValueError:
+            pass
+        print("Invalid selection, try again.", file=sys.stderr)
+
+
+def resolve_resource(
+    client: PassboltClient, identifier: str, pick: bool = False
+) -> dict[str, Any]:
+    """Resolve a resource by UUID or name, optionally prompting on ambiguity."""
+    if len(identifier) == 36 and identifier.count("-") == 4:
+        try:
+            return client.get_resource_by_id(identifier)
+        except Exception:
+            pass
+
+    matches = client.find_resources_by_name(identifier)
+    if not matches:
+        print(f"Error: Password '{identifier}' not found", file=sys.stderr)
         sys.exit(1)
 
-    # Get the secret
+    if len(matches) == 1:
+        return matches[0]
+
+    if pick:
+        return pick_resource(matches)
+
+    raise AmbiguousResourceError(matches)
+
+
+def _copy_with_auto_clear(
+    text: str,
+    clipboard_cmd: list[str],
+    config: PassboltConfig | None,
+    resource_name: str,
+    *,
+    quiet: bool = False,
+) -> None:
+    """Copy text to clipboard and schedule automatic clearing."""
+    copy_to_clipboard(text, clipboard_cmd)
+
+    if config and config.clipboard_timeout > 0:
+        schedule_clipboard_clear(
+            clipboard_cmd,
+            config.clipboard_timeout,
+            text,
+            f"Clipboard cleared ({resource_name})",
+        )
+        if not quiet:
+            print(
+                f"Clipboard will be cleared in {config.clipboard_timeout} seconds",
+                file=sys.stderr,
+            )
+
+
+def copy_password(
+    client: PassboltClient,
+    password_name: str,
+    config: PassboltConfig | None = None,
+    *,
+    pick: bool = False,
+    quiet: bool = False,
+) -> None:
+    """Copy a password to the clipboard"""
+    try:
+        resource = resolve_resource(client, password_name, pick=pick)
+    except AmbiguousResourceError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        print("Use --pick to choose interactively.", file=sys.stderr)
+        sys.exit(1)
+
     try:
         resource_id: str = resource["id"]
         secret: str = client.get_secret(resource_id)
         password: str = get_password_field(secret)
 
-        # Copy to clipboard using system clipboard tools
-        # Try different clipboard mechanisms in order of preference
-        clipboard_cmd: list[str] | None = None
-
-        # Check for Wayland (wl-copy) - only if actually in Wayland session
-        if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-copy"):
-            clipboard_cmd = ["wl-copy"]
-        # Check for X11 (xclip or xsel)
-        elif os.environ.get("DISPLAY"):
-            if shutil.which("xclip"):
-                clipboard_cmd = ["xclip", "-selection", "clipboard", "-i"]
-            elif shutil.which("xsel"):
-                clipboard_cmd = ["xsel", "--clipboard", "--input"]
-        # Check for macOS (pbcopy)
-        elif shutil.which("pbcopy"):
-            clipboard_cmd = ["pbcopy"]
+        clipboard_cmd = get_clipboard_cmd()
 
         if not clipboard_cmd:
             print(
@@ -60,69 +149,91 @@ def copy_password(
             sys.exit(1)
 
         try:
-            # xclip/xsel need to stay running to serve clipboard content
-            # Use Popen to fork them to background
-            if clipboard_cmd[0] in ("xclip", "xsel"):
-                proc = subprocess.Popen(
-                    clipboard_cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                if proc.stdin is not None:
-                    proc.stdin.write(password.encode("utf-8"))
-                    proc.stdin.close()
-                # Don't wait for the process - let it run in background
-
-                # Start background process to clear clipboard after timeout
-                if config and config.clipboard_timeout > 0:
-                    # Use a simple approach: just clear after timeout without checking content
-                    # This avoids exposing the password in process list
-                    clear_script = f"""import time, subprocess
-time.sleep({config.clipboard_timeout})
-subprocess.run({repr(clipboard_cmd)}, input='', text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-"""
-                    subprocess.Popen(
-                        [sys.executable, "-c", clear_script],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-            else:
-                result = subprocess.run(
-                    clipboard_cmd,
-                    input=password,
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                if result.returncode != 0:
-                    print(
-                        f"Error copying to clipboard: {result.stderr}",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
+            _copy_with_auto_clear(
+                password,
+                clipboard_cmd,
+                config,
+                resource["name"],
+                quiet=quiet,
+            )
         except Exception as e:
             print(f"Error copying to clipboard: {e}", file=sys.stderr)
             sys.exit(1)
 
-        print(f"Password for '{resource['name']}' copied to clipboard")
+        if not quiet:
+            print(f"Password for '{resource['name']}' copied to clipboard")
 
     except Exception as e:
         print(f"Error retrieving password: {e}", file=sys.stderr)
         sys.exit(1)
 
 
-def search_passwords(client: PassboltClient, query: str) -> None:
+def list_passwords(
+    client: PassboltClient,
+    *,
+    json_output: bool = False,
+    quiet: bool = False,
+) -> None:
+    """List all password resources."""
+    try:
+        results = client.list_resources()
+        if json_output:
+            print(json.dumps([_resource_summary(resource) for resource in results]))
+            return
+
+        if not results:
+            if not quiet:
+                print("No passwords found")
+            return
+
+        if not quiet:
+            print(f"Found {len(results)} password(s):\n")
+
+        for resource in results:
+            name = resource.get("name", "Unknown")
+            totp_marker = " [TOTP]" if has_totp(resource) else ""
+            if quiet:
+                print(name)
+            else:
+                print(f"  • {name}{totp_marker}")
+                resource_id = resource.get("id", "")
+                if resource_id:
+                    print(f"    ID: {resource_id}")
+                username = resource.get("username", "")
+                if username:
+                    print(f"    Username: {username}")
+                uri = resource.get("uri", "")
+                if uri:
+                    print(f"    URI: {uri}")
+                print()
+
+    except Exception as e:
+        print(f"Error listing passwords: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def search_passwords(
+    client: PassboltClient,
+    query: str,
+    *,
+    json_output: bool = False,
+    quiet: bool = False,
+) -> None:
     """Search for passwords matching the query"""
     try:
         results: list[dict[str, Any]] = client.search_resources(query)
 
-        if not results:
-            print(f"No passwords found matching '{query}'")
+        if json_output:
+            print(json.dumps([_resource_summary(resource) for resource in results]))
             return
 
-        print(f"Found {len(results)} password(s):\n")
+        if not results:
+            if not quiet:
+                print(f"No passwords found matching '{query}'")
+            return
+
+        if not quiet:
+            print(f"Found {len(results)} password(s):\n")
 
         for resource in results:
             name = resource.get("name", "Unknown")
@@ -131,6 +242,10 @@ def search_passwords(client: PassboltClient, query: str) -> None:
             uri = resource.get("uri", "")
             description = resource.get("description", "")
             totp_marker = " [TOTP]" if has_totp(resource) else ""
+
+            if quiet:
+                print(name)
+                continue
 
             print(f"  • {name}{totp_marker}")
             print(f"    ID: {resource_id}")
@@ -147,16 +262,21 @@ def search_passwords(client: PassboltClient, query: str) -> None:
         sys.exit(1)
 
 
-def export_password(client: PassboltClient, password_name: str, pass_path: str) -> None:
+def export_password(
+    client: PassboltClient,
+    password_name: str,
+    pass_path: str,
+    *,
+    pick: bool = False,
+) -> None:
     """Export a password to password-store (pass)"""
-    # Find the resource (by UUID or name)
-    resource: dict[str, Any] | None = client.find_resource_by_name_or_id(password_name)
-
-    if not resource:
-        print(f"Error: Password '{password_name}' not found", file=sys.stderr)
+    try:
+        resource = resolve_resource(client, password_name, pick=pick)
+    except AmbiguousResourceError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        print("Use --pick to choose interactively.", file=sys.stderr)
         sys.exit(1)
 
-    # Get the secret
     try:
         resource_id = resource["id"]
         secret = client.get_secret(resource_id)
@@ -166,7 +286,6 @@ def export_password(client: PassboltClient, password_name: str, pass_path: str) 
         username = resource.get("username", "")
         uri = resource.get("uri", "")
 
-        # Build multiline pass entry
         pass_content = password
         if username or uri:
             pass_content += "\n"
@@ -175,7 +294,6 @@ def export_password(client: PassboltClient, password_name: str, pass_path: str) 
         if uri:
             pass_content += f"url: {uri}\n"
 
-        # Insert into pass
         result = subprocess.run(
             ["pass", "insert", "-m", pass_path],
             input=pass_content,
@@ -197,26 +315,34 @@ def export_password(client: PassboltClient, password_name: str, pass_path: str) 
         sys.exit(1)
 
 
-def show_password(client: PassboltClient, password_name: str) -> None:
+def show_password(
+    client: PassboltClient,
+    password_name: str,
+    *,
+    pick: bool = False,
+    quiet: bool = False,
+) -> None:
     """Display password on stdout"""
-    # Find the resource (by UUID or name)
-    resource: dict[str, Any] | None = client.find_resource_by_name_or_id(password_name)
-
-    if not resource:
-        print(f"Error: Password '{password_name}' not found", file=sys.stderr)
+    try:
+        resource = resolve_resource(client, password_name, pick=pick)
+    except AmbiguousResourceError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        print("Use --pick to choose interactively.", file=sys.stderr)
         sys.exit(1)
 
-    # Get the secret
     try:
         resource_id = resource["id"]
         secret = client.get_secret(resource_id)
         secret_data = parse_secret(secret)
 
         password = secret_data.get("password", secret)
+        if quiet:
+            print(password)
+            return
+
         username = resource.get("username", "")
         uri = resource.get("uri", "")
 
-        # Build output in pass format
         output = password
         if username or uri:
             output += "\n"
@@ -224,19 +350,26 @@ def show_password(client: PassboltClient, password_name: str) -> None:
             output += f"username: {username}\n"
         if uri:
             output += f"url: {uri}\n"
+        print(output, end="")
     except Exception as e:
         print(f"Error retrieving password: {e}", file=sys.stderr)
         sys.exit(1)
 
 
 def copy_totp(
-    client: PassboltClient, password_name: str, config: PassboltConfig | None = None
+    client: PassboltClient,
+    password_name: str,
+    config: PassboltConfig | None = None,
+    *,
+    pick: bool = False,
+    quiet: bool = False,
 ) -> None:
     """Generate and copy a TOTP code to the clipboard"""
-    resource: dict[str, Any] | None = client.find_resource_by_name_or_id(password_name)
-
-    if not resource:
-        print(f"Error: Resource '{password_name}' not found", file=sys.stderr)
+    try:
+        resource = resolve_resource(client, password_name, pick=pick)
+    except AmbiguousResourceError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        print("Use --pick to choose interactively.", file=sys.stderr)
         sys.exit(1)
 
     if not has_totp(resource):
@@ -258,44 +391,27 @@ def copy_totp(
             )
             sys.exit(1)
 
-        # Copy to clipboard
-        clipboard_cmd: list[str] | None = None
-
-        if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-copy"):
-            clipboard_cmd = ["wl-copy"]
-        elif os.environ.get("DISPLAY"):
-            if shutil.which("xclip"):
-                clipboard_cmd = ["xclip", "-selection", "clipboard", "-i"]
-            elif shutil.which("xsel"):
-                clipboard_cmd = ["xsel", "--clipboard", "--input"]
-        elif shutil.which("pbcopy"):
-            clipboard_cmd = ["pbcopy"]
+        clipboard_cmd = get_clipboard_cmd()
 
         if not clipboard_cmd:
-            # No clipboard tool, just print the code
             print(totp_code)
             return
 
         try:
-            proc = subprocess.Popen(
+            _copy_with_auto_clear(
+                totp_code,
                 clipboard_cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                config,
+                f"TOTP for '{resource['name']}'",
+                quiet=quiet,
             )
-            if proc.stdin is not None:
-                proc.stdin.write(totp_code.encode("utf-8"))
-                proc.stdin.close()
-            try:
-                proc.wait(timeout=0.5)
-            except subprocess.TimeoutExpired:
-                pass
         except Exception as e:
             print(f"Error copying to clipboard: {e}", file=sys.stderr)
             print(totp_code)
             return
 
-        print(f"TOTP code for '{resource['name']}' copied to clipboard")
+        if not quiet:
+            print(f"TOTP code for '{resource['name']}' copied to clipboard")
 
     except Exception as e:
         print(f"Error generating TOTP: {e}", file=sys.stderr)

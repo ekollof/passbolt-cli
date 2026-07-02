@@ -10,6 +10,7 @@ import requests
 
 from passbolt.auth import PassboltAuth
 from passbolt.config import PassboltConfig
+from passbolt.resources import match_resources_by_name
 
 MAX_RETRIES = 3
 RETRY_BACKOFF = 1.0  # seconds, doubled each retry
@@ -25,10 +26,7 @@ class PassboltClient:
         assert server_url is not None
         self.base_url: str = server_url
         self.auth: PassboltAuth = PassboltAuth(config)
-        self.session: requests.Session
-
-        # Authenticate and get authenticated session
-        self._authenticate()
+        self.session: requests.Session | None = None
 
     def _authenticate(self) -> None:
         """Authenticate with Passbolt API using GPG key"""
@@ -43,6 +41,13 @@ class PassboltClient:
         except Exception as e:
             raise Exception(f"Authentication failed: {e}")
 
+    def _ensure_authenticated(self) -> requests.Session:
+        """Authenticate lazily on first API request."""
+        if self.session is None:
+            self._authenticate()
+        assert self.session is not None
+        return self.session
+
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make an authenticated request to the API with retry logic"""
         url = urljoin(self.base_url, endpoint)
@@ -51,14 +56,16 @@ class PassboltClient:
         last_exception: Exception | None = None
         for attempt in range(MAX_RETRIES):
             try:
-                response = self.session.request(method, url, **kwargs)
+                session = self._ensure_authenticated()
+                response = session.request(method, url, **kwargs)
 
                 # Handle session expiration
                 match response.status_code:
                     case 401 | 403:
                         # Re-authenticate and retry
                         self._authenticate()
-                        response = self.session.request(method, url, **kwargs)
+                        session = self._ensure_authenticated()
+                        response = session.request(method, url, **kwargs)
 
                 response.raise_for_status()
                 return response
@@ -126,55 +133,48 @@ class PassboltClient:
     def search_resources(self, query: str) -> list[dict[str, Any]]:
         """Search for resources matching query"""
         # Try server-side filtering first
-        resources = self.get_resources(filter_query=query)
+        resources = self.get_resources(filter_query=query or None)
 
-        # If no filter was applied server-side (all results returned),
-        # do client-side filtering
-        if query:
-            query_lower = query.lower()
-            filtered = []
-            for resource in resources:
-                # Search in name, username, uri, and description
-                name = (resource.get("name") or "").lower()
-                username = (resource.get("username") or "").lower()
-                uri = (resource.get("uri") or "").lower()
-                description = (resource.get("description") or "").lower()
+        if not query:
+            return resources
 
-                if (
-                    query_lower in name
-                    or query_lower in username
-                    or query_lower in uri
-                    or query_lower in description
-                ):
-                    filtered.append(resource)
+        query_lower = query.lower()
+        filtered = []
+        for resource in resources:
+            # Search in name, username, uri, and description
+            name = (resource.get("name") or "").lower()
+            username = (resource.get("username") or "").lower()
+            uri = (resource.get("uri") or "").lower()
+            description = (resource.get("description") or "").lower()
 
-            return filtered
+            if (
+                query_lower in name
+                or query_lower in username
+                or query_lower in uri
+                or query_lower in description
+            ):
+                filtered.append(resource)
 
-        return resources
+        return filtered
+
+    def find_resources_by_name(self, name: str) -> list[dict[str, Any]]:
+        """Find resources by exact or partial name match using server-side search."""
+        return match_resources_by_name(self.search_resources(name), name)
 
     def find_resource_by_name(self, name: str) -> dict[str, Any] | None:
         """Find a resource by exact or partial name match"""
-        resources = self.get_resources()
-
-        # Try exact match first
-        for resource in resources:
-            if resource.get("name", "").lower() == name.lower():
-                return resource
-
-        # Try partial match
-        matches = [r for r in resources if name.lower() in r.get("name", "").lower()]
+        matches = self.find_resources_by_name(name)
 
         match len(matches):
+            case 0:
+                return None
             case 1:
                 return matches[0]
-            case n if n > 1:
-                # Multiple matches, raise error with suggestions
-                names = [r["name"] for r in matches[:5]]
+            case _:
+                names = [resource["name"] for resource in matches[:5]]
                 raise ValueError(
                     f"Multiple resources match '{name}': {', '.join(names)}"
                 )
-
-        return None
 
     def find_resource_by_name_or_id(self, identifier: str) -> dict[str, Any] | None:
         """Find a resource by UUID or name"""
@@ -188,3 +188,8 @@ class PassboltClient:
 
         # Fall back to name search
         return self.find_resource_by_name(identifier)
+
+    def list_resources(self) -> list[dict[str, Any]]:
+        """List all resources sorted by name."""
+        resources = self.get_resources()
+        return sorted(resources, key=lambda resource: (resource.get("name") or "").lower())

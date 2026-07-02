@@ -14,7 +14,7 @@ A command-line interface for [Passbolt](https://www.passbolt.com/) password mana
 
 ## Requirements
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - GPG (GnuPG)
 - password-store (`pass`) - optional, only needed for export command
 

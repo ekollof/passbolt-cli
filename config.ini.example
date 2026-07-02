@@ -1,3 +1,5 @@
+# You can also set PASSBOLT_CONFIG to point at this file instead of using -c.
+
 [passbolt]
 # The URL of your Passbolt server
 server_url = https://passbolt.example.com

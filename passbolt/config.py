@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import configparser
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
+
+
+def default_config_path() -> Path:
+    """Return the default configuration file path."""
+    env_path = os.environ.get("PASSBOLT_CONFIG")
+    if env_path:
+        return Path(env_path).expanduser()
+    return Path("~/.config/passbolt/config.ini").expanduser()
 
 
 class PassboltConfig:
@@ -61,13 +70,14 @@ class PassboltConfig:
         return self.private_key_path.read_text()
 
 
-def load_config(config_path: Path) -> PassboltConfig:
+def load_config(config_path: Path | None = None) -> PassboltConfig:
     """Load configuration from INI file"""
-    if not config_path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    path = config_path or default_config_path()
+    if not path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {path}")
 
     parser = configparser.ConfigParser()
-    parser.read(config_path)
+    parser.read(path)
 
     if "passbolt" not in parser:
         raise ValueError("Configuration file must contain [passbolt] section")
