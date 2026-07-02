@@ -77,12 +77,14 @@ passbolt tui
 Keyboard shortcuts:
 - `↑` / `↓` - Navigate entries
 - `/` - Focus search box
-- `Enter` / `Esc` - Move focus to results table
+- `Tab` - Switch between search and results
+- `Enter` / `Esc` - Focus results (Esc also clears search text)
 - `c` - Copy password to clipboard
 - `t` - Copy TOTP code to clipboard
 - `u` - Copy username to clipboard
 - `o` - Copy URI to clipboard
 - `s` - Show password on screen
+- `r` - Refresh from server
 - `q` - Quit
 
 ### Export to password-store

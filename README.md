@@ -296,17 +296,18 @@ passbolt tui
 Keyboard shortcuts:
 - `↑` / `↓` - Navigate entries
 - `/` - Focus search box
+- `Tab` - Switch focus between search and results table
 - `Enter` - Copy password (when the table is focused)
-- `Esc` - Move focus from search to results table
+- `Esc` - Clear search filter, or move focus from search to results table
 - `c` - Copy password to clipboard
 - `t` - Copy TOTP code to clipboard
 - `u` - Copy username to clipboard
 - `o` - Copy URI to clipboard
-- `s` - Show password on screen (`c` to copy from that screen)
+- `s` - Show password on screen (`c`/`t`/`u`/`o` work from that screen too)
 - `r` - Refresh resource list from server
 - `q` - Quit
 
-Search is debounced and filters in real time. TOTP entries show a live countdown in the detail panel (e.g. `123456 (18s)`). After copying, the footer shows a clipboard clear countdown.
+Search filters the loaded list instantly (no API call per keystroke). A status line shows how many entries match (e.g. `Showing 3 of 120 — filter: git`). TOTP entries show a live countdown and progress bar in the detail panel (e.g. `123456 (18s)`). After copying, the footer shows a clipboard clear countdown.
 
 **Theming:** The TUI supports dynamic theming via [wallust](https://codeberg.org/explosion-mental/wallust) / [pywal](https://github.com/dylanaraps/pywal). If `~/.cache/wal/colors.json` exists, the TUI will automatically pick up your color scheme and refresh when it changes.
 

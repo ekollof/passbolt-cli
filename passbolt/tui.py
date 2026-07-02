@@ -14,7 +14,6 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.timer import Timer
 from textual.widgets import (
     DataTable,
     Footer,
@@ -31,6 +30,7 @@ from passbolt.clipboard import (
 )
 from passbolt.client import PassboltClient
 from passbolt.config import PassboltConfig
+from passbolt.resources import filter_resources_by_query
 from passbolt.secret import (
     extract_totp,
     generate_totp,
@@ -40,7 +40,20 @@ from passbolt.secret import (
 )
 from passbolt.theme import load_wallust_theme
 
-SEARCH_DEBOUNCE_SECONDS = 0.3
+COLUMN_LIMITS = {"name": 32, "username": 24, "uri": 36}
+
+
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _totp_progress(remaining: int, period: int, width: int = 10) -> str:
+    elapsed = max(0, period - remaining)
+    filled = round((elapsed / period) * width) if period else 0
+    filled = min(width, max(0, filled))
+    return "█" * filled + "░" * (width - filled)
 
 
 class ResourceDetail(Static):
@@ -48,6 +61,7 @@ class ResourceDetail(Static):
 
     resource: reactive[dict[str, Any] | None] = reactive(None)
     totp_display: reactive[str] = reactive("")
+    totp_progress: reactive[str] = reactive("")
 
     def watch_resource(self, resource: dict[str, Any] | None) -> None:
         """Update display when resource changes"""
@@ -76,7 +90,11 @@ class ResourceDetail(Static):
 
         if has_totp(resource):
             if self.totp_display:
-                lines.append(f"[dim]TOTP:[/dim]        [green]{self.totp_display}[/green]")
+                lines.append(
+                    f"[dim]TOTP:[/dim]        [green]{self.totp_display}[/green]"
+                )
+                if self.totp_progress:
+                    lines.append(f"[dim]         [/dim] [green]{self.totp_progress}[/green]")
             else:
                 lines.append(
                     "[dim]TOTP:[/dim]        [green]Available[/green] (press [b]t[/b] to copy)"
@@ -86,6 +104,10 @@ class ResourceDetail(Static):
 
     def watch_totp_display(self, _value: str) -> None:
         """Refresh detail panel when the live TOTP display changes."""
+        self.watch_resource(self.resource)
+
+    def watch_totp_progress(self, _value: str) -> None:
+        """Refresh detail panel when the TOTP progress bar changes."""
         self.watch_resource(self.resource)
 
     @staticmethod
@@ -107,7 +129,8 @@ class PassboltTUI(App[None]):
         Binding("r", "refresh_resources", "Refresh"),
         Binding("enter", "copy_password", "Copy", show=False),
         Binding("slash", "focus_search", "Search"),
-        Binding("escape", "defocus_or_clear", "Results"),
+        Binding("tab", "cycle_focus", "Focus"),
+        Binding("escape", "clear_search", "Clear"),
         Binding("up", "cursor_up", "Up", show=False),
         Binding("down", "cursor_down", "Down", show=False),
     ]
@@ -129,7 +152,13 @@ class PassboltTUI(App[None]):
 
     .search-input {
         width: 100%;
-        margin: 1 0;
+        margin: 1 0 0 0;
+    }
+
+    .status-bar {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
     }
 
     .content-area {
@@ -154,6 +183,10 @@ class PassboltTUI(App[None]):
         height: 100%;
     }
 
+    DataTable > .datatable--cursor {
+        background: $accent 40%;
+    }
+
     .loading {
         text-align: center;
         color: $text-muted;
@@ -171,12 +204,13 @@ class PassboltTUI(App[None]):
         super().__init__()
         self.client = client
         self.config = config
+        self._all_resources: list[dict[str, Any]] = []
         self._secret_cache: dict[str, str] = {}
+        self._totp_cache: dict[str, dict[str, Any]] = {}
         self._clipboard_clear_generation: int = 0
         self._last_clipboard_text: str = ""
         self._clipboard_clear_deadline: float | None = None
-        self._search_debounce_timer: Timer | None = None
-        self._pending_search_query: str = ""
+        self._loading: bool = False
         self._wal_path = Path.home() / ".cache" / "wal" / "colors.json"
         self._wal_mtime: float = 0.0
 
@@ -186,10 +220,12 @@ class PassboltTUI(App[None]):
         with Vertical(classes="main-container"):
             with Horizontal(classes="top-bar"):
                 yield Input(
-                    placeholder="Search passwords... (press / to focus, Enter/Esc to results)",
+                    placeholder="Search passwords... (/ focus, Tab switch, Enter/Esc results)",
                     classes="search-input",
                     id="search",
                 )
+
+            yield Label("Loading resources...", classes="status-bar", id="status-bar")
 
             with Horizontal(classes="content-area"):
                 with Vertical(classes="resource-list"):
@@ -226,18 +262,43 @@ class PassboltTUI(App[None]):
 
         self.query_one("#loading-label", Label).styles.display = "block"
         self.query_one("#detail", ResourceDetail).styles.display = "none"
-        self.load_resources()
+        self.load_all_resources()
 
     @work(thread=True)
-    def load_resources(self, query: str = "") -> None:
-        """Load resources from Passbolt in a background thread"""
+    def load_all_resources(self) -> None:
+        """Load the full resource list from Passbolt in a background thread."""
+        self.call_from_thread(self._set_loading, True)
         try:
-            results = self.client.search_resources(query)
-            self.call_from_thread(self.set_resources, results)
+            results = self.client.list_resources()
+            self.call_from_thread(self._on_resources_loaded, results)
         except Exception as e:
             self.call_from_thread(self.show_error, f"Error loading resources: {e}")
+        finally:
+            self.call_from_thread(self._set_loading, False)
 
-    def set_resources(self, results: list[dict[str, Any]]) -> None:
+    def _set_loading(self, loading: bool) -> None:
+        self._loading = loading
+        self._update_status_bar()
+
+    def _on_resources_loaded(self, results: list[dict[str, Any]]) -> None:
+        """Store fetched resources and apply the current search filter."""
+        self._all_resources = results
+        search = self.query_one("#search", Input)
+        self._apply_search_filter(search.value)
+
+    def _apply_search_filter(self, query: str) -> None:
+        """Filter the cached resource list locally and refresh the table."""
+        filtered = filter_resources_by_query(self._all_resources, query)
+        preserve_id = (self.selected_resource or {}).get("id")
+        self.set_resources(filtered, select_id=preserve_id)
+        self._update_status_bar(query=query)
+
+    def set_resources(
+        self,
+        results: list[dict[str, Any]],
+        *,
+        select_id: str | None = None,
+    ) -> None:
         """Set resources and update table"""
         self.resources = results
         table = self.query_one("#resource-table", DataTable)
@@ -251,17 +312,44 @@ class PassboltTUI(App[None]):
             loading.update("No resources found.")
             loading.styles.display = "block"
             self.query_one("#detail", ResourceDetail).styles.display = "none"
+            self.selected_resource = None
             return
 
         for resource in results:
-            name = resource.get("name", "Unknown")
-            username = resource.get("username", "")
-            uri = resource.get("uri", "")
+            name = _truncate(resource.get("name", "Unknown"), COLUMN_LIMITS["name"])
+            username = _truncate(resource.get("username", ""), COLUMN_LIMITS["username"])
+            uri = _truncate(resource.get("uri", ""), COLUMN_LIMITS["uri"])
             totp_marker = "●" if has_totp(resource) else ""
             table.add_row(name, username, uri, totp_marker, key=resource.get("id", ""))
 
+        selected_index = 0
+        if select_id:
+            for index, resource in enumerate(results):
+                if resource.get("id") == select_id:
+                    selected_index = index
+                    break
+
         if table.row_count > 0:
-            table.move_cursor(row=0)
+            table.move_cursor(row=selected_index)
+            self.selected_resource = results[selected_index]
+
+    def _update_status_bar(self, query: str | None = None) -> None:
+        """Update the status line above the resource table."""
+        status = self.query_one("#status-bar", Label)
+        if query is None:
+            query = self.query_one("#search", Input).value
+
+        if self._loading:
+            status.update("[dim]Loading resources from server...[/dim]")
+            return
+
+        total = len(self._all_resources)
+        shown = len(self.resources)
+        if query:
+            status.update(f"Showing {shown} of {total} — filter: {query}")
+        else:
+            noun = "resource" if total == 1 else "resources"
+            status.update(f"{total} {noun}")
 
     def show_error(self, message: str) -> None:
         """Show an error message"""
@@ -269,6 +357,7 @@ class PassboltTUI(App[None]):
         loading.update(f"[red]{message}[/red]")
         loading.styles.display = "block"
         self.query_one("#detail", ResourceDetail).styles.display = "none"
+        self.query_one("#status-bar", Label).update("[red]Failed to load resources[/red]")
 
     @on(DataTable.RowSelected)
     @on(DataTable.RowHighlighted)
@@ -285,6 +374,7 @@ class PassboltTUI(App[None]):
         detail = self.query_one("#detail", ResourceDetail)
         detail.resource = resource
         detail.totp_display = ""
+        detail.totp_progress = ""
         if resource and has_totp(resource):
             self._refresh_totp_display()
 
@@ -293,7 +383,6 @@ class PassboltTUI(App[None]):
         if self.selected_resource and has_totp(self.selected_resource):
             self._refresh_totp_display()
 
-    @work(thread=True)
     def _refresh_totp_display(self) -> None:
         """Compute and display the current TOTP code with countdown."""
         resource = self.selected_resource
@@ -304,65 +393,67 @@ class PassboltTUI(App[None]):
         if not resource_id:
             return
 
-        try:
-            secret = self.client.get_secret(resource_id)
-            totp_params = extract_totp(secret)
-            if totp_params is None:
-                return
+        totp_params = self._get_totp_params(resource_id)
+        if totp_params is None:
+            return
 
-            code = generate_totp(
-                secret_key=totp_params["secret_key"],
-                algorithm=totp_params["algorithm"],
-                digits=totp_params["digits"],
-                period=totp_params["period"],
-            )
-            remaining = totp_params["period"] - (int(time.time()) % totp_params["period"])
-            display = f"{code} ({remaining}s)"
+        code = generate_totp(
+            secret_key=totp_params["secret_key"],
+            algorithm=totp_params["algorithm"],
+            digits=totp_params["digits"],
+            period=totp_params["period"],
+        )
+        remaining = totp_params["period"] - (int(time.time()) % totp_params["period"])
+        display = f"{code} ({remaining}s)"
+        progress = _totp_progress(remaining, totp_params["period"])
 
-            def _update() -> None:
-                detail = self.query_one("#detail", ResourceDetail)
-                if self.selected_resource is resource:
-                    detail.totp_display = display
-
-            self.call_from_thread(_update)
-        except Exception:
-            pass
+        detail = self.query_one("#detail", ResourceDetail)
+        if self.selected_resource is resource:
+            detail.totp_display = display
+            detail.totp_progress = progress
 
     @on(Input.Changed, "#search")
     def on_search_changed(self, event: Input.Changed) -> None:
-        """Handle search input changes with debounce"""
-        self._pending_search_query = event.value
-        if self._search_debounce_timer is not None:
-            self._search_debounce_timer.stop()
-        self._search_debounce_timer = self.set_timer(
-            SEARCH_DEBOUNCE_SECONDS,
-            self._run_debounced_search,
-        )
-
-    def _run_debounced_search(self) -> None:
-        """Run the pending search after debounce."""
-        self.load_resources(self._pending_search_query)
+        """Handle search input changes with instant local filtering."""
+        self._apply_search_filter(event.value)
 
     def action_focus_search(self) -> None:
         """Focus the search input"""
         self.query_one("#search", Input).focus()
 
-    def action_defocus_or_clear(self) -> None:
-        """Defocus search and move focus to the results table"""
+    def action_cycle_focus(self) -> None:
+        """Switch focus between the search box and results table."""
+        search = self.query_one("#search", Input)
+        table = self.query_one("#resource-table", DataTable)
+        if search.has_focus:
+            table.focus()
+        else:
+            search.focus()
+
+    def action_defocus_search(self) -> None:
+        """Move focus from search to the results table."""
         search = self.query_one("#search", Input)
         search.blur()
         self.query_one("#resource-table", DataTable).focus()
 
+    def action_clear_search(self) -> None:
+        """Clear the search filter and refocus the results table."""
+        search = self.query_one("#search", Input)
+        if search.value:
+            search.value = ""
+            self._apply_search_filter("")
+        self.action_defocus_search()
+
     def action_refresh_resources(self) -> None:
         """Reload resources from the server"""
-        search = self.query_one("#search", Input)
-        self.load_resources(search.value)
-        self.notify("Resources refreshed", severity="information")
+        self._clear_sensitive_caches()
+        self.load_all_resources()
+        self.notify("Refreshing resources...", severity="information")
 
     @on(Input.Submitted, "#search")
     def on_search_submitted(self, event: Input.Submitted) -> None:
         """Pressing Enter in the search box moves focus to the table"""
-        self.action_defocus_or_clear()
+        self.action_defocus_search()
 
     def action_cursor_up(self) -> None:
         """Move cursor up in table"""
@@ -441,11 +532,28 @@ class PassboltTUI(App[None]):
         self._secret_cache[resource_id] = password
         return password
 
+    def _get_totp_params(self, resource_id: str) -> dict[str, Any] | None:
+        """Get cached TOTP parameters for a resource."""
+        if resource_id in self._totp_cache:
+            return self._totp_cache[resource_id]
+
+        secret = self.client.get_secret(resource_id)
+        totp_params = extract_totp(secret)
+        if totp_params is not None:
+            self._totp_cache[resource_id] = totp_params
+        return totp_params
+
     def _evict_secret_cache(self, resource_id: str) -> None:
         """Overwrite and remove a single cached password."""
         if resource_id in self._secret_cache:
             self._secret_cache[resource_id] = "x" * len(self._secret_cache[resource_id])
             del self._secret_cache[resource_id]
+        if resource_id in self._totp_cache:
+            params = self._totp_cache[resource_id]
+            secret_key = params.get("secret_key")
+            if isinstance(secret_key, str):
+                params["secret_key"] = "x" * len(secret_key)
+            del self._totp_cache[resource_id]
 
     def _clear_secret_cache(self) -> None:
         """Overwrite and clear cached passwords from memory"""
@@ -453,9 +561,22 @@ class PassboltTUI(App[None]):
             self._secret_cache[key] = "x" * len(self._secret_cache[key])
         self._secret_cache.clear()
 
+    def _clear_totp_cache(self) -> None:
+        """Overwrite and clear cached TOTP secrets from memory."""
+        for resource_id in list(self._totp_cache.keys()):
+            params = self._totp_cache[resource_id]
+            secret_key = params.get("secret_key")
+            if isinstance(secret_key, str):
+                params["secret_key"] = "x" * len(secret_key)
+            del self._totp_cache[resource_id]
+
+    def _clear_sensitive_caches(self) -> None:
+        self._clear_secret_cache()
+        self._clear_totp_cache()
+
     def on_unmount(self) -> None:
         """Clean up sensitive data when app is shutting down"""
-        self._clear_secret_cache()
+        self._clear_sensitive_caches()
 
     @staticmethod
     def _do_clipboard_copy(text: str) -> tuple[bool, str | list[str]]:
@@ -611,13 +732,18 @@ class PassboltTUI(App[None]):
             return
 
         try:
-            secret = self.client.get_secret(resource_id)
-            totp_code = get_totp_for_resource(secret)
-            if totp_code is None:
+            totp_params = self._get_totp_params(resource_id)
+            if totp_params is None:
                 self.call_from_thread(
                     self.notify, "Could not extract TOTP data", severity="error"
                 )
                 return
+            totp_code = generate_totp(
+                secret_key=totp_params["secret_key"],
+                algorithm=totp_params["algorithm"],
+                digits=totp_params["digits"],
+                period=totp_params["period"],
+            )
             success, result = self._do_clipboard_copy(totp_code)
             if success:
                 self.call_from_thread(
@@ -652,12 +778,17 @@ class PassboltTUI(App[None]):
         """Fetch and show secret in background thread"""
         try:
             password = self._get_password(resource_id)
-            totp_code: str | None = None
-            totp_params = None
-            if has_totp(resource):
-                secret = self.client.get_secret(resource_id)
-                totp_params = extract_totp(secret)
-                totp_code = get_totp_for_resource(secret)
+            totp_params = self._get_totp_params(resource_id) if has_totp(resource) else None
+            totp_code = (
+                generate_totp(
+                    secret_key=totp_params["secret_key"],
+                    algorithm=totp_params["algorithm"],
+                    digits=totp_params["digits"],
+                    period=totp_params["period"],
+                )
+                if totp_params
+                else None
+            )
             self.call_from_thread(
                 self._push_secret_screen,
                 password,
@@ -689,6 +820,9 @@ class PassboltTUI(App[None]):
                 Binding("q", "app.pop_screen", "Close"),
                 Binding("escape", "app.pop_screen", "Close"),
                 Binding("c", "copy_password", "Copy Password"),
+                Binding("t", "copy_totp", "Copy TOTP"),
+                Binding("u", "copy_username", "Copy Username"),
+                Binding("o", "copy_uri", "Copy URI"),
             ]
 
             totp_code_display: reactive[str] = reactive("")
@@ -709,32 +843,46 @@ class PassboltTUI(App[None]):
                 self.resource_id = resource_id
 
             def compose(self) -> ComposeResult:
+                yield Static(self._render_content(), id="secret-content")
+                yield Label(
+                    "[dim]c password · t TOTP · u username · o URI · Esc close[/dim]",
+                    classes="center",
+                )
+
+            def _render_content(self) -> str:
                 lines: list[str] = []
-                lines.append(f"[b]{resource.get('name', 'Unknown')}[/b]\n")
+                lines.append(f"[b]{self.resource.get('name', 'Unknown')}[/b]\n")
                 lines.append("[b]Password[/b]")
-                lines.append(f"[reverse]{password}[/reverse]\n")
+                lines.append(f"[reverse]{self.password}[/reverse]\n")
 
-                if totp_code or totp_params:
+                if self.totp_code or self.totp_params:
                     lines.append("[b]TOTP[/b]")
-                    lines.append(f"[reverse]{self.totp_code_display or totp_code or '...'}[/reverse]\n")
+                    lines.append(
+                        f"[reverse]{self.totp_code_display or self.totp_code or '...'}[/reverse]"
+                    )
+                    if self.totp_params:
+                        remaining = self.totp_params["period"] - (
+                            int(time.time()) % self.totp_params["period"]
+                        )
+                        lines.append(
+                            f"[dim]{_totp_progress(remaining, self.totp_params['period'])}[/dim]\n"
+                        )
+                    else:
+                        lines.append("")
 
-                username = resource.get("username")
+                username = self.resource.get("username")
                 if username:
                     lines.append(f"[dim]Username:[/dim] {username}")
 
-                uri = resource.get("uri")
+                uri = self.resource.get("uri")
                 if uri:
                     lines.append(f"[dim]URI:[/dim]      {uri}")
 
-                description = resource.get("description")
+                description = self.resource.get("description")
                 if description:
                     lines.append(f"[dim]Description:[/dim] {description}")
 
-                yield Static("\n".join(lines), id="secret-content")
-                yield Label(
-                    "[dim]Press [b]c[/b] to copy, [b]Esc[/b] or [b]q[/b] to close[/dim]",
-                    classes="center",
-                )
+                return "\n".join(lines)
 
             def on_mount(self) -> None:
                 if self.totp_params:
@@ -754,29 +902,22 @@ class PassboltTUI(App[None]):
                     int(time.time()) % self.totp_params["period"]
                 )
                 self.totp_code_display = f"{code} ({remaining}s)"
-                content = self.query_one("#secret-content", Static)
-                lines: list[str] = []
-                lines.append(f"[b]{self.resource.get('name', 'Unknown')}[/b]\n")
-                lines.append("[b]Password[/b]")
-                lines.append(f"[reverse]{self.password}[/reverse]\n")
-                lines.append("[b]TOTP[/b]")
-                lines.append(f"[reverse]{self.totp_code_display}[/reverse]\n")
-                username = self.resource.get("username")
-                if username:
-                    lines.append(f"[dim]Username:[/dim] {username}")
-                uri = self.resource.get("uri")
-                if uri:
-                    lines.append(f"[dim]URI:[/dim]      {uri}")
-                description = self.resource.get("description")
-                if description:
-                    lines.append(f"[dim]Description:[/dim] {description}")
-                content.update("\n".join(lines))
+                self.query_one("#secret-content", Static).update(self._render_content())
 
             def action_copy_password(self) -> None:
                 app._copy_secret(
                     self.resource_id,
                     self.resource.get("name", "Unknown"),
                 )
+
+            def action_copy_totp(self) -> None:
+                app.action_copy_totp()
+
+            def action_copy_username(self) -> None:
+                app.action_copy_username()
+
+            def action_copy_uri(self) -> None:
+                app.action_copy_uri()
 
             def on_unmount(self) -> None:
                 app._evict_secret_cache(self.resource_id)
