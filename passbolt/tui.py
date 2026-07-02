@@ -30,7 +30,7 @@ from passbolt.clipboard import (
 )
 from passbolt.client import PassboltClient
 from passbolt.config import PassboltConfig
-from passbolt.resources import filter_resources_by_query
+from passbolt.resources import filter_resources_by_query, sanitize_resource_for_display
 from passbolt.secret import (
     extract_totp,
     generate_totp,
@@ -43,10 +43,20 @@ from passbolt.theme import load_wallust_theme
 COLUMN_LIMITS = {"name": 32, "username": 24, "uri": 36}
 
 
-def _truncate(text: str, limit: int) -> str:
+def _truncate(text: str | None, limit: int) -> str:
+    if not text:
+        return ""
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
+
+
+def _row_key(resource: dict[str, Any], index: int) -> str:
+    """Return a stable DataTable row key for a resource."""
+    resource_id = resource.get("id")
+    if resource_id:
+        return str(resource_id)
+    return f"__row_{index}"
 
 
 def _totp_progress(remaining: int, period: int, width: int = 10) -> str:
@@ -282,7 +292,9 @@ class PassboltTUI(App[None]):
 
     def _on_resources_loaded(self, results: list[dict[str, Any]]) -> None:
         """Store fetched resources and apply the current search filter."""
-        self._all_resources = results
+        self._all_resources = [
+            sanitize_resource_for_display(resource) for resource in results
+        ]
         search = self.query_one("#search", Input)
         self._apply_search_filter(search.value)
 
@@ -315,12 +327,18 @@ class PassboltTUI(App[None]):
             self.selected_resource = None
             return
 
-        for resource in results:
-            name = _truncate(resource.get("name", "Unknown"), COLUMN_LIMITS["name"])
-            username = _truncate(resource.get("username", ""), COLUMN_LIMITS["username"])
-            uri = _truncate(resource.get("uri", ""), COLUMN_LIMITS["uri"])
+        for index, resource in enumerate(results):
+            name = _truncate(resource.get("name"), COLUMN_LIMITS["name"])
+            username = _truncate(resource.get("username"), COLUMN_LIMITS["username"])
+            uri = _truncate(resource.get("uri"), COLUMN_LIMITS["uri"])
             totp_marker = "●" if has_totp(resource) else ""
-            table.add_row(name, username, uri, totp_marker, key=resource.get("id", ""))
+            table.add_row(
+                name,
+                username,
+                uri,
+                totp_marker,
+                key=_row_key(resource, index),
+            )
 
         selected_index = 0
         if select_id:

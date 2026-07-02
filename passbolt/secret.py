@@ -49,7 +49,7 @@ def get_password_field(secret: str) -> str:
 
 def has_totp(resource: dict[str, Any]) -> bool:
     """Check if a Passbolt resource has TOTP data based on its resource_type_id."""
-    return resource.get("resource_type_id", "") in TOTP_RESOURCE_TYPE_IDS
+    return (resource.get("resource_type_id") or "") in TOTP_RESOURCE_TYPE_IDS
 
 
 def extract_totp(secret: str) -> dict[str, Any] | None:

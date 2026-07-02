@@ -4,7 +4,25 @@ from __future__ import annotations
 
 import unittest
 
-from passbolt.resources import filter_resources_by_query, match_resources_by_name
+from passbolt.resources import (
+    filter_resources_by_query,
+    match_resources_by_name,
+    sanitize_resource_for_display,
+)
+
+
+class SanitizeResourceTests(unittest.TestCase):
+    def test_null_fields_become_strings(self) -> None:
+        resource = sanitize_resource_for_display(
+            {"id": "1", "name": None, "username": None, "uri": None}
+        )
+        self.assertEqual(resource["name"], "Unknown")
+        self.assertEqual(resource["username"], "")
+        self.assertEqual(resource["uri"], "")
+
+    def test_filters_null_name_without_error(self) -> None:
+        resources = [{"id": "1", "name": None, "username": "alice"}]
+        self.assertEqual(len(filter_resources_by_query(resources, "alice")), 1)
 
 
 class FilterResourcesByQueryTests(unittest.TestCase):
